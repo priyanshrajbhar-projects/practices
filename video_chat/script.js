@@ -1,4 +1,4 @@
-// FINAL CODE (with Recording, Quality, Popup Fix)
+// FINAL CODE (with Reactions, Mobile Screen Share Fix, Popup Fix)
 // FIX: Renamed copyUrlBtn function to copyShareUrl to avoid declaration conflict
 
 // --- DOM Elements ---
@@ -18,13 +18,14 @@ const videoContainer = document.getElementById('videoContainer');
 const localVideo = document.getElementById('localVideo');
 const remoteVideo = document.getElementById('remoteVideo');
 const remoteVideoPlaceholder = document.getElementById('remoteVideoPlaceholder');
+const animationContainer = document.getElementById('animationContainer'); // NEW
 
 const controlsContainer = document.getElementById('controlsContainer');
 const muteBtn = document.getElementById('muteBtn');
 const videoBtn = document.getElementById('videoBtn');
 const switchCameraBtn = document.getElementById('switchCameraBtn');
 const screenShareBtn = document.getElementById('screenShareBtn');
-const recordBtn = document.getElementById('recordBtn'); // NEW
+const recordBtn = document.getElementById('recordBtn');
 const hangupBtn = document.getElementById('hangupBtn');
 
 const roomCodeDisplay = document.getElementById('roomCodeDisplay');
@@ -45,7 +46,7 @@ const peerStatus = document.getElementById('peerStatus');
 const peerVideoStatus = document.getElementById('peerVideoStatus');
 const peerAudioStatus = document.getElementById('peerAudioStatus');
 
-const callInfoContainer = document.getElementById('callInfoContainer'); // NEW
+const callInfoContainer = document.getElementById('callInfoContainer');
 
 // --- Global Variables ---
 let currentStream;
@@ -66,7 +67,7 @@ let networkStatsInterval;
 let tooltipTimer;
 let shortPin;
 
-// NEW: Recording Variables
+// Recording Variables
 let mediaRecorder;
 let recordedChunks = [];
 let isRecording = false;
@@ -129,7 +130,7 @@ function initHome() {
     videoBtn.onclick = toggleVideo;
     switchCameraBtn.onclick = switchCamera;
     screenShareBtn.onclick = toggleScreenShare;
-    recordBtn.onclick = toggleRecording; // NEW
+    recordBtn.onclick = toggleRecording;
     hangupBtn.onclick = hangUp;
 
     sendChatBtn.onclick = sendChatMessage;
@@ -140,6 +141,12 @@ function initHome() {
     shareBtn.onclick = showShareModal;
     closeModalBtn.onclick = () => shareModal.classList.add('hidden');
     copyUrlBtn.onclick = copyShareUrl; // FIX: Was pointing to a non-existent function
+
+    // NEW: Reaction Listeners
+    document.getElementById('react-thumbsup').onclick = () => sendReaction('👍');
+    document.getElementById('react-heart').onclick = () => sendReaction('❤️');
+    document.getElementById('react-laugh').onclick = () => sendReaction('😂');
+    document.getElementById('react-clap').onclick = () => sendReaction('👏');
 }
 
 function checkUrlForRoom() {
@@ -425,11 +432,9 @@ function setupDataChannelEvents(channel) {
         chatInput.disabled = false;
         sendChatBtn.disabled = false;
         
-        // Timer aur Network Monitor start karo
         startCallTimer(); 
         startNetworkMonitoring();
         
-        // Peer ko apna naam bhejo
         sendEventMessage('hello', {});
     };
     
@@ -439,9 +444,8 @@ function setupDataChannelEvents(channel) {
         sendChatBtn.disabled = true;
         
         showTooltip(`${remoteUserName} disconnected.`, 'error');
-        stopNetworkMonitoring(); // Monitor band karo
+        stopNetworkMonitoring();
         
-        // Status overlay reset karo
         peerStatus.classList.add('hidden');
         peerVideoStatus.classList.add('hidden');
         peerAudioStatus.classList.add('hidden');
@@ -474,6 +478,8 @@ function setupDataChannelEvents(channel) {
                 } else if (data.payload.type === 'screen_share_off') {
                     showTooltip(`${remoteUserName} stopped sharing screen`, 'success');
                 }
+            } else if (data.type === 'reaction') { // NEW: Handle Reactions
+                showFloatingEmoji(data.payload.emoji);
             }
 
         } catch (error) {
@@ -486,7 +492,7 @@ function setupDataChannelEvents(channel) {
 function sendEventMessage(type, payload) {
     if (dataChannel && dataChannel.readyState === 'open') {
         const data = {
-            type: type, // 'status', 'event', 'hello'
+            type: type, // 'status', 'event', 'hello', 'reaction'
             sender: userName,
             payload: payload
         };
@@ -547,6 +553,13 @@ function setupRoomUI() {
     chatInput.disabled = true;
     sendChatBtn.disabled = true;
     remoteVideoPlaceholder.classList.remove('hidden');
+
+    // NEW: Mobile Screen Share Fix
+    // Agar device 'getDisplayMedia' support nahi karta (e.g., mobile), button chhipa do
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
+        console.log('Screen sharing not supported on this device.');
+        screenShareBtn.style.display = 'none';
+    }
 }
 
 function updateShareModal(id) {
@@ -591,7 +604,6 @@ function toggleVideo() {
 
 async function toggleScreenShare() {
     if (!isScreenSharing) {
-        // Start screen sharing
         try {
             screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
             const screenTrack = screenStream.getVideoTracks()[0];
@@ -616,6 +628,7 @@ async function toggleScreenShare() {
 
         } catch (error) {
             console.error('Error starting screen share:', error);
+            showTooltip('Could not start screen share', 'error');
         }
     } else {
         await stopScreenShare();
@@ -682,13 +695,12 @@ function startNetworkMonitoring() {
         try {
             const stats = await peerConnection.getStats();
             let roundTripTime = 0;
-            let frameHeight = 0; // NEW: Quality check
+            let frameHeight = 0; 
 
             stats.forEach(report => {
                 if (report.type === 'remote-inbound-rtp' && report.roundTripTime) {
                     roundTripTime = report.roundTripTime * 1000;
                 }
-                // 'inbound-rtp' track par remote video ki quality milti hai
                 if (report.type === 'inbound-rtp' && report.kind === 'video' && report.frameHeight) {
                     frameHeight = report.frameHeight;
                 }
@@ -719,7 +731,7 @@ function stopNetworkMonitoring() {
     }
 }
 
-// --- Recording Functions (NEW) ---
+// --- Recording Functions ---
 
 function toggleRecording() {
     if (isRecording) {
@@ -735,7 +747,6 @@ function startRecording() {
         return;
     }
 
-    // Dono streams (local + remote) ko combine karo
     recordedChunks = [];
     const combinedStream = new MediaStream([
         ...currentStream.getTracks(),
@@ -791,6 +802,31 @@ function downloadRecording() {
     window.URL.revokeObjectURL(url);
     document.body.removeChild(a);
     recordedChunks = [];
+}
+
+
+// --- Reaction Functions (NEW) ---
+
+function sendReaction(emoji) {
+    // Show locally
+    showFloatingEmoji(emoji);
+    // Send to peer
+    sendEventMessage('reaction', { emoji: emoji });
+}
+
+function showFloatingEmoji(emoji) {
+    const emojiSpan = document.createElement('span');
+    emojiSpan.innerText = emoji;
+    emojiSpan.className = 'floating-emoji';
+    // Random horizontal start
+    emojiSpan.style.left = (Math.random() * 80 + 10) + '%';
+    
+    animationContainer.appendChild(emojiSpan);
+    
+    // Remove after animation
+    emojiSpan.onanimationend = () => {
+        emojiSpan.remove();
+    };
 }
 
 
