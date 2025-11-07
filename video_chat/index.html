@@ -1,4 +1,3 @@
-<!--updating code @10.15am-->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -13,25 +12,27 @@
     <style>
         /* Mirror local video */
         video { transform: scaleX(-1); object-fit: cover; }
+
         /* Network Status Colors */
-         .net-good { color: #22c55e; } /* green-500 */
+        .net-good { color: #22c55e; } /* green-500 */
         .net-medium { color: #eab308; } /* yellow-500 */
         .net-bad { color: #ef4444; } /* red-500 */
-        /* Don't mirror remote video */
+        
+        /* Don't mirror remote video + Screen Share Fix */
         #remoteVideo { 
             transform: scaleX(1);
-            object-fit: contain;
+            object-fit: contain; /* Ensures screen share fits */
         }
-        
 
         /* Tooltip Style */
         #tooltip {
             transition: transform 0.3s ease-in-out, opacity 0.3s ease-in-out;
-            transform: translateY(100px);
+            transform: translateY(100px); /* Hidden state */
             opacity: 0;
+            pointer-events: none; /* Taa ki click na ho */
         }
         .tooltip-visible {
-            transform: translateY(-20px);
+            transform: translateY(-20px); /* Visible state */
             opacity: 1;
         }
 
@@ -42,12 +43,10 @@
                 height: 100vh;
                 overflow: hidden;
             }
-            
             #videoContainer {
                 height: 60vh;
                 min-height: 60vh;
             }
-            
             .chat-sidebar {
                 height: 40vh;
                 min-height: 40vh;
@@ -77,7 +76,11 @@
                 Create Room
             </button>
             <div class="flex">
-                <input id="joinRoomInput" type="text" placeholder="Enter Room Code" class="bg-gray-700 text-white py-3 px-4 rounded-l-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <input id="joinRoomInput" 
+                       type="text" 
+                       placeholder="Enter 6-Digit PIN" 
+                       class="bg-gray-700 text-white py-3 px-4 rounded-l-lg focus:outline-none focus:ring-2 focus:ring-blue-500" 
+                       maxlength="6">
                 <button id="joinRoomBtn" class="bg-gray-600 hover:bg-gray-700 text-white font-bold py-3 px-6 rounded-r-lg transition duration-300">
                     Join
                 </button>
@@ -87,21 +90,21 @@
 
     <div id="roomScreen" class="hidden w-full h-screen p-0 lg:p-4 flex flex-col lg:flex-row gap-0 lg:gap-4 overflow-hidden">
         
-        <!-- Video Container -->
         <div class="flex-1 flex flex-col"> 
             <div id="videoContainer" class="bg-gray-800 w-full h-full flex items-center justify-center overflow-hidden shadow-2xl relative">
+                
+                <div id="callTimer" class="hidden absolute top-3 left-3 bg-gray-900 bg-opacity-70 text-white text-sm px-3 py-1 rounded-lg z-10">
+                    00:00:00
+                </div>
 
-                <div id="callTimer" class="hidden absolute top-3 left-3 bg-gray-900 bg-opacity-70 text-white text-sm px-3 py-1 rounded-lg z-10">00:00:00</div>
                 <div id="networkStatus" class="hidden absolute top-3 left-24 bg-gray-900 bg-opacity-70 text-white text-sm px-3 py-1 rounded-lg z-10 flex items-center gap-1">
                     <span id="networkIcon" class="net-good">●</span>
                     <span id="networkSpeed">-- ms</span>
                 </div>
-                
-                <!-- Remote Video -->
+
                 <video id="remoteVideo" autoplay playsinline class="h-full w-full"></video>
                 <p id="remoteVideoPlaceholder" class="absolute text-gray-400">Waiting for other user...</p>
                 
-                <!-- Peer Status Overlay -->
                 <div id="peerStatus" class="hidden absolute inset-0 flex items-center justify-center bg-gray-800 bg-opacity-60">
                     <div class="text-center text-white">
                         <p id="peerVideoStatus" class="hidden text-4xl mb-2">🚫📹</p>
@@ -109,35 +112,29 @@
                     </div>
                 </div>
 
-                <!-- Local Video (Picture-in-Picture) -->
                 <div class="absolute top-3 right-3 w-24 h-20 sm:w-32 sm:h-24 lg:w-40 lg:h-32 bg-gray-700 rounded-lg overflow-hidden shadow-lg border-2 border-blue-500">
                     <video id="localVideo" autoplay playsinline muted class="h-full w-full"></video>
                 </div>
 
-                <!-- Control Buttons - Fixed at bottom center of video -->
                 <div id="controlsContainer" class="absolute bottom-3 left-1/2 -translate-x-1/2 flex gap-2 sm:gap-3 bg-gray-800 bg-opacity-80 p-2 sm:p-3 rounded-full shadow-lg">
                     <button id="muteBtn" class="w-10 h-10 sm:w-11 sm:h-11 bg-blue-600 hover:bg-blue-700 rounded-full flex items-center justify-center text-lg sm:text-xl transition">🔇</button>
                     <button id="videoBtn" class="w-10 h-10 sm:w-11 sm:h-11 bg-blue-600 hover:bg-blue-700 rounded-full flex items-center justify-center text-lg sm:text-xl transition">📹</button>
                     <button id="switchCameraBtn" class="hidden w-10 h-10 sm:w-11 sm:h-11 bg-gray-600 hover:bg-gray-700 rounded-full flex items-center justify-center text-lg sm:text-xl transition">🔄</button>
-                    <button id="switchCameraBtn" class="hidden ...">🔄</button>
                     <button id="screenShareBtn" class="w-10 h-10 sm:w-11 sm:h-11 bg-gray-600 hover:bg-gray-700 rounded-full flex items-center justify-center text-lg sm:text-xl transition">💻</button>
                     <button id="hangupBtn" class="w-10 h-10 sm:w-11 sm:h-11 bg-red-600 hover:bg-red-700 rounded-full flex items-center justify-center text-lg sm:text-xl transition">📞</button>
                 </div>
             </div>
         </div>
 
-        <!-- Chat Sidebar -->
         <div class="chat-sidebar lg:w-80 w-full bg-gray-800 p-3 sm:p-4 lg:rounded-lg flex flex-col shadow-xl">
-            <!-- Room Code -->
             <div id="roomCodeSection" class="mb-3 sm:mb-4">
-                <h3 class="font-bold text-base sm:text-lg mb-2">Room Code:</h3>
+                <h3 class="font-bold text-base sm:text-lg mb-2">Room PIN:</h3>
                 <div class="flex gap-2">
                     <input id="roomCodeDisplay" type="text" readonly class="flex-1 bg-gray-700 text-white py-2 px-3 rounded-lg focus:outline-none text-sm">
                     <button id="shareBtn" class="bg-blue-600 hover:bg-blue-700 px-3 sm:px-4 py-2 rounded-lg text-sm">Share</button>
                 </div>
             </div>
 
-            <!-- Chat Section -->
             <h3 class="font-bold text-base sm:text-lg mb-2">Chat</h3>
             <div id="chatMessages" class="flex-1 bg-gray-700 rounded-lg p-2 overflow-y-auto mb-2 space-y-2 text-sm">
             </div>
@@ -148,7 +145,6 @@
         </div>
     </div>
 
-    <!-- Share Modal -->
     <div id="shareModal" class="hidden fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4">
         <div class="bg-gray-800 p-6 sm:p-8 rounded-lg shadow-2xl text-center w-full max-w-sm">
             <h2 class="text-xl sm:text-2xl font-bold mb-4">Share Room</h2>
@@ -160,7 +156,6 @@
         </div>
     </div>
 
-    <!-- Tooltip -->
     <div id="tooltip" class="fixed bottom-0 left-1/2 -translate-x-1/2 p-3 px-5 rounded-lg shadow-lg text-white text-sm">
     </div>
 
