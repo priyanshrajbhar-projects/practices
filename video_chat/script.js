@@ -53,6 +53,8 @@ let db;
 let isRoomCreator = false; // Track if user created the room
 let isScreenSharing = false;
 let screenStream;
+let callTimerInterval; // Timer ka interval ID
+let callStartTime;     // Call kab shuru hua
 // ...
 // Listeners
 let unsubscribeRoom;
@@ -550,6 +552,39 @@ async function stopScreenShare() {
     isScreenSharing = false;
     document.getElementById('screenShareBtn').classList.remove('bg-blue-600');
 }
+
+// --- Call Timer Functions ---
+
+function startCallTimer() {
+    callStartTime = Date.now();
+    document.getElementById('callTimer').classList.remove('hidden');
+
+    callTimerInterval = setInterval(() => {
+        const secondsElapsed = Math.floor((Date.now() - callStartTime) / 1000);
+        document.getElementById('callTimer').innerText = formatTime(secondsElapsed);
+    }, 1000); // Har second update karo
+}
+
+function stopCallTimer() {
+    if (callTimerInterval) {
+        clearInterval(callTimerInterval);
+    }
+    document.getElementById('callTimer').classList.add('hidden');
+    document.getElementById('callTimer').innerText = '00:00:00';
+}
+
+// Helper function jo seconds ko HH:MM:SS format mein badalta hai
+function formatTime(totalSeconds) {
+    const hours = Math.floor(totalSeconds / 3600);
+    totalSeconds %= 3600;
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+
+    return [hours, minutes, seconds]
+        .map(v => (v < 10 ? "0" + v : v)) // Sabko 2 digit ka banata hai (e.g., 01:05:09)
+        .join(":");
+}
+
 
 async function hangUp() {
     // Unsubscribe from all listeners
