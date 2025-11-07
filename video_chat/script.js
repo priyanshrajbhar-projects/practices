@@ -1,4 +1,5 @@
-// updating code @ 10.16am
+// FINAL CODE @ 8:20 PM
+
 // --- DOM Elements ---
 const welcomeScreen = document.getElementById('welcomeScreen');
 const nameInput = document.getElementById('nameInput');
@@ -21,6 +22,7 @@ const controlsContainer = document.getElementById('controlsContainer');
 const muteBtn = document.getElementById('muteBtn');
 const videoBtn = document.getElementById('videoBtn');
 const switchCameraBtn = document.getElementById('switchCameraBtn');
+const screenShareBtn = document.getElementById('screenShareBtn');
 const hangupBtn = document.getElementById('hangupBtn');
 
 const roomCodeDisplay = document.getElementById('roomCodeDisplay');
@@ -50,14 +52,16 @@ let roomId;
 let userName = 'Guest';
 let facingMode = 'user';
 let db;
-let isRoomCreator = false; // Track if user created the room
+let isRoomCreator = false;
 let isScreenSharing = false;
 let screenStream;
-let callTimerInterval; // Timer ka interval ID
-let callStartTime;     // Call kab shuru hua
-let remoteUserName = 'Peer'; // NEW: Doosre user ka naam store karega
-let networkStatsInterval;    // NEW: Network stats check karne ke liye
-// ...
+let callTimerInterval;
+let callStartTime;
+let remoteUserName = 'Peer';
+let networkStatsInterval;
+let tooltipTimer;
+let shortPin;
+
 // Listeners
 let unsubscribeRoom;
 let unsubscribeOfferCandidates;
@@ -110,13 +114,12 @@ function setupWelcomeScreen() {
 function initHome() {
     createRoomBtn.onclick = createRoom;
     joinRoomBtn.onclick = () => joinRoom(joinRoomInput.value);
-    hangupBtn.onclick = hangUp;
-    document.getElementById('screenShareBtn').onclick = toggleScreenShare;
     
     // Simple button listeners
     muteBtn.onclick = toggleAudio;
     videoBtn.onclick = toggleVideo;
     switchCameraBtn.onclick = switchCamera;
+    screenShareBtn.onclick = toggleScreenShare;
     hangupBtn.onclick = hangUp;
 
     sendChatBtn.onclick = sendChatMessage;
@@ -133,14 +136,27 @@ function checkUrlForRoom() {
     const urlParams = new URLSearchParams(window.location.search);
     const roomFromUrl = urlParams.get('room');
     if (roomFromUrl) {
-        joinRoomInput.value = roomFromUrl;
+        // Agar URL mein poora Room ID hai, toh usey join karne ki koshish karo
+        // (PIN logic ko bypass karke)
+        // Note: PIN logic ke liye, hum ise simple rakhte hain aur user ko PIN enter karne dete hain
+        // joinRoomInput.value = roomFromUrl;
+        console.log('Room ID in URL found, but PIN system is active. Please enter PIN.');
     }
 }
 
 // --- Tooltip Function ---
 function showTooltip(message, type = 'success') {
+    const tooltip = document.getElementById('tooltip');
+    if (!tooltip) return;
+    
     tooltip.innerText = message;
     
+    // Purana timer (agar ho) toh clear karo
+    if (tooltipTimer) {
+        clearTimeout(tooltipTimer);
+    }
+
+    // Color set karo
     if (type === 'error') {
         tooltip.classList.add('bg-red-500');
         tooltip.classList.remove('bg-green-500');
@@ -149,10 +165,18 @@ function showTooltip(message, type = 'success') {
         tooltip.classList.remove('bg-red-500');
     }
 
+    // Show karo
     tooltip.classList.add('tooltip-visible');
-    setTimeout(() => {
+
+    // 3 second baad hide karo
+    tooltipTimer = setTimeout(() => {
         tooltip.classList.remove('tooltip-visible');
     }, 3000);
+}
+
+// --- Helper Function ---
+function generatePin() {
+    return Math.floor(100000 + Math.random() * 900000).toString();
 }
 
 // --- Core Functions ---
@@ -195,10 +219,10 @@ async function switchCamera() {
         const videoTrack = currentStream.getVideoTracks()[0];
         const sender = peerConnection.getSenders().find(s => s.track.kind === 'video');
         if (sender) {
-            sender.replaceTrack(videoTrack);
+            await sender.replaceTrack(videoTrack);
+            
             showTooltip('Camera switched', 'success');
             sendEventMessage('event', { type: 'camera_switch' });
-            sendPeerStatus('video', videoTrack.enabled);
         }
     }
 }
@@ -206,33 +230,42 @@ async function switchCamera() {
 async function createRoom() {
     await startMedia();
     setupRoomUI();
-    isRoomCreator = true; // Mark as room creator
+    isRoomCreator = true; 
+
+    // --- NEW PIN LOGIC ---
+    shortPin = generatePin();
+    const pinRef = db.collection('activePins').doc(shortPin);
 
     const roomRef = await db.collection('rooms').add({});
     roomId = roomRef.id;
-    roomCodeDisplay.value = roomId;
-    updateShareModal(roomId);
+    
+    await pinRef.set({
+        roomId: roomId,
+        createdAt: firebase.firestore.FieldValue.serverTimestamp() 
+    });
+    
+    roomCodeDisplay.value = shortPin; // UI mein PIN dikhao
+    updateShareModal(roomId); // Share Modal abhi bhi poora URL dega
 
     const offerCandidates = roomRef.collection('offerCandidates');
     const answerCandidates = roomRef.collection('answerCandidates');
 
     peerConnection = new RTCPeerConnection(servers);
-    // NEW: Add connection state listener
-        peerConnection.onconnectionstatechange = (event) => {
-            console.log('Connection state changed:', peerConnection.connectionState);
+
+    // Connection State Listener
+    peerConnection.onconnectionstatechange = (event) => {
+        console.log('Connection state changed:', peerConnection.connectionState);
+        if (peerConnection.connectionState === 'disconnected' ||
+            peerConnection.connectionState === 'failed' ||
+            peerConnection.connectionState === 'closed') {
             
-            if (peerConnection.connectionState === 'disconnected' ||
-                peerConnection.connectionState === 'failed' ||
-                peerConnection.connectionState === 'closed') {
-                
-                showTooltip('User disconnected.', 'error');
-                
-                // Thoda delay dein taaki user message padh sake
-                setTimeout(() => {
-                    hangUp();
-                }, 2000);
-            }
-        };
+            // showTooltip(`${remoteUserName} disconnected.`, 'error'); // Handled by data channel 'onclose'
+            
+            setTimeout(() => {
+                hangUp();
+            }, 2000);
+        }
+    };
 
     currentStream.getTracks().forEach(track => {
         peerConnection.addTrack(track, currentStream);
@@ -257,7 +290,7 @@ async function createRoom() {
     await peerConnection.setLocalDescription(offer);
     
     await roomRef.set({ offer: { sdp: offer.sdp, type: offer.type } });
-    console.log('Room created with ID:', roomId);
+    console.log('Room created with PIN:', shortPin, 'Actual ID:', roomId);
 
     unsubscribeRoom = roomRef.onSnapshot(async (snapshot) => {
         const data = snapshot.data();
@@ -278,18 +311,37 @@ async function createRoom() {
     });
 }
 
-async function joinRoom(id) {
-    if (!id) {
-        alert('Please enter a room code.');
+async function joinRoom(pin) {
+    if (!pin || pin.length !== 6) {
+        alert('Please enter a valid 6-digit PIN.');
         return;
     }
-    
-    roomId = id;
+
+    let actualRoomId;
+
+    try {
+        // Step 1: PIN se asli Room ID dhoondho
+        const pinRef = db.collection('activePins').doc(pin);
+        const pinDoc = await pinRef.get();
+
+        if (!pinDoc.exists) {
+            alert('PIN does not exist or has expired.');
+            return;
+        }
+        actualRoomId = pinDoc.data().roomId;
+
+    } catch (error) {
+        console.error('Error looking up PIN:', error);
+        alert('Could not find room.');
+        return;
+    }
+
+    // Step 2: Asli Room ID milne ke baad puraana logic run karo
+    roomId = actualRoomId;
     await startMedia();
     setupRoomUI();
-    isRoomCreator = false; // Mark as joiner
+    isRoomCreator = false; 
     
-    // Hide room code section for joiner
     const roomCodeSection = document.getElementById('roomCodeSection');
     if (roomCodeSection) {
         roomCodeSection.style.display = 'none';
@@ -307,22 +359,21 @@ async function joinRoom(id) {
     }
 
     peerConnection = new RTCPeerConnection(servers);
-    // NEW: Add connection state listener
-        peerConnection.onconnectionstatechange = (event) => {
-            console.log('Connection state changed:', peerConnection.connectionState);
+
+    // Connection State Listener
+    peerConnection.onconnectionstatechange = (event) => {
+        console.log('Connection state changed:', peerConnection.connectionState);
+        if (peerConnection.connectionState === 'disconnected' ||
+            peerConnection.connectionState === 'failed' ||
+            peerConnection.connectionState === 'closed') {
             
-            if (peerConnection.connectionState === 'disconnected' ||
-                peerConnection.connectionState === 'failed' ||
-                peerConnection.connectionState === 'closed') {
-                
-                showTooltip('User disconnected.', 'error');
-                
-                // Thoda delay dein taaki user message padh sake
-                setTimeout(() => {
-                    hangUp();
-                }, 2000);
-            }
-        };
+            // showTooltip(`${remoteUserName} disconnected.`, 'error'); // Handled by data channel 'onclose'
+            
+            setTimeout(() => {
+                hangUp();
+            }, 2000);
+        }
+    };
 
     currentStream.getTracks().forEach(track => {
         peerConnection.addTrack(track, currentStream);
@@ -365,9 +416,8 @@ async function joinRoom(id) {
 }
 
 
-// --- Data Channel (Chat) Functions ---
+// --- Data Channel (Chat & Events) Functions ---
 
-// REPLACE your entire old setupDataChannelEvents function with this new one
 function setupDataChannelEvents(channel) {
     channel.onopen = () => {
         console.log('Data channel open');
@@ -436,13 +486,13 @@ function setupDataChannelEvents(channel) {
     };
 }
 
-// Send Peer Status Function
+// Send Event/Status/Chat Message
 function sendEventMessage(type, payload) {
     if (dataChannel && dataChannel.readyState === 'open') {
         const data = {
             type: type, // 'status', 'event', 'hello'
             sender: userName,
-            payload: payload // { media: 'audio', enabled: true } OR { type: 'camera_switch' }
+            payload: payload
         };
         dataChannel.send(JSON.stringify(data));
     }
@@ -468,7 +518,7 @@ function sendChatMessage() {
     const data = {
         type: 'chat',
         sender: userName,
-        text: message  // Changed from 'message' to 'text'
+        text: message
     };
 
     if (dataChannel && dataChannel.readyState === 'open') {
@@ -547,6 +597,8 @@ function toggleVideo() {
     sendEventMessage('status', { media: 'video', enabled: enabled });
 }
 
+// --- Screen Share Functions ---
+
 async function toggleScreenShare() {
     if (!isScreenSharing) {
         // Start screen sharing
@@ -564,9 +616,12 @@ async function toggleScreenShare() {
 
             // Update UI
             isScreenSharing = true;
-            document.getElementById('screenShareBtn').classList.add('bg-blue-600'); // Active state
+            screenShareBtn.classList.add('bg-blue-600');
+            screenShareBtn.classList.remove('bg-gray-600');
+            
             showTooltip('Started screen sharing', 'success');
             sendEventMessage('event', { type: 'screen_share_on' });
+            
             // Listen for when the user clicks "Stop Sharing" in the browser UI
             screenTrack.onended = () => {
                 stopScreenShare();
@@ -594,11 +649,14 @@ async function stopScreenShare() {
             await sender.replaceTrack(videoTrack);
         }
     }
+    
     showTooltip('Stopped screen sharing', 'success');
     sendEventMessage('event', { type: 'screen_share_off' });
+    
     // Update UI
     isScreenSharing = false;
-    document.getElementById('screenShareBtn').classList.remove('bg-blue-600');
+    screenShareBtn.classList.remove('bg-blue-600');
+    screenShareBtn.classList.add('bg-gray-600');
 }
 
 // --- Call Timer Functions ---
@@ -610,7 +668,7 @@ function startCallTimer() {
     callTimerInterval = setInterval(() => {
         const secondsElapsed = Math.floor((Date.now() - callStartTime) / 1000);
         document.getElementById('callTimer').innerText = formatTime(secondsElapsed);
-    }, 1000); // Har second update karo
+    }, 1000);
 }
 
 function stopCallTimer() {
@@ -621,7 +679,6 @@ function stopCallTimer() {
     document.getElementById('callTimer').innerText = '00:00:00';
 }
 
-// Helper function jo seconds ko HH:MM:SS format mein badalta hai
 function formatTime(totalSeconds) {
     const hours = Math.floor(totalSeconds / 3600);
     totalSeconds %= 3600;
@@ -629,10 +686,9 @@ function formatTime(totalSeconds) {
     const seconds = totalSeconds % 60;
 
     return [hours, minutes, seconds]
-        .map(v => (v < 10 ? "0" + v : v)) // Sabko 2 digit ka banata hai (e.g., 01:05:09)
+        .map(v => (v < 10 ? "0" + v : v))
         .join(":");
 }
-
 
 // --- Network Monitoring Functions ---
 
@@ -647,9 +703,7 @@ function startNetworkMonitoring() {
             let roundTripTime = 0;
 
             stats.forEach(report => {
-                // 'remote-inbound-rtp' report mein roundTripTime hota hai
                 if (report.type === 'remote-inbound-rtp' && report.roundTripTime) {
-                    // time is in seconds, convert to milliseconds
                     roundTripTime = report.roundTripTime * 1000;
                 }
             });
@@ -681,34 +735,32 @@ function stopNetworkMonitoring() {
     document.getElementById('networkStatus').classList.add('hidden');
 }
 
+
+// --- Hangup Function ---
+
 async function hangUp() {
-    // Unsubscribe from all listeners
     stopCallTimer();
     stopNetworkMonitoring();
+
     if (unsubscribeRoom) unsubscribeRoom();
     if (unsubscribeOfferCandidates) unsubscribeOfferCandidates();
     if (unsubscribeAnswerCandidates) unsubscribeAnswerCandidates();
 
-    // Close connections
     if (dataChannel) {
         dataChannel.close();
     }
     if (peerConnection) {
-        peerConnection.onconnectionstatechange = null; // Listener hatao taaki loop na bane
+        peerConnection.onconnectionstatechange = null;
         peerConnection.close();
     }
-    
-    // Stop media tracks
     if (currentStream) {
         currentStream.getTracks().forEach(track => track.stop());
     }
 
-    // Clean up Firestore
-    if (roomId && db) { 
+    if (roomId && db) {
         try {
             const roomRef = db.collection('rooms').doc(roomId);
             
-            // Sirf room creator hi main room doc aur offer candidates ko delete karega
             if (isRoomCreator) {
                 console.log('Creator cleaning up room...');
                 const offerCandidates = await roomRef.collection('offerCandidates').get();
@@ -717,23 +769,28 @@ async function hangUp() {
                 const answerCandidates = await roomRef.collection('answerCandidates').get();
                 answerCandidates.forEach(async (doc) => await doc.ref.delete());
                 
+                // PIN ko bhi delete karo
+                if (shortPin) {
+                    await db.collection('activePins').doc(shortPin).delete();
+                }
+                
                 await roomRef.delete();
+
             } else {
-                // Joiner sirf apne answer candidates ko clean up karega
                 console.log('Joiner cleaning up candidates...');
                 const answerCandidates = await roomRef.collection('answerCandidates').get();
                 answerCandidates.forEach(async (doc) => await doc.ref.delete());
             }
         } catch (error) {
-            // Errors ko ignore karo (ho sakta hai room pehle hi delete ho chuka ho)
             console.warn("Harmless error cleaning up firestore:", error.message);
         }
     }
 
-    // UI reset karo aur home page par jao
-    // pathname use karna deployed apps ke liye safe hai
+    // Home page par redirect karo
     window.location.href = window.location.pathname;
 }
+
+// --- Modal Functions ---
 
 function showShareModal() {
     shareModal.classList.remove('hidden');
