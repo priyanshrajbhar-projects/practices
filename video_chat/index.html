@@ -1,3 +1,4 @@
+<!-- 01:18am -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -89,13 +90,13 @@
             border-color: #34d399 !important;
         }
 
-        /* NEW: Scroll Fix for #roomScreen */
+        /* NEW: Mobile/Scroll Fix for #roomScreen */
         #roomScreen {
-            height: 100%; /* Use 100% instead of 100vh */
-            width: 100%;
+            height: 100vh; /* 100% viewport height */
+            width: 100vw; /* 100% viewport width */
         }
         
-        /* Mobile Video Screen Fix */
+        /* Mobile Video Screen Fix (Original Logic) */
         @media (max-width: 1023px) {
             #roomScreen {
                 flex-direction: column;
@@ -211,7 +212,7 @@
             </div>
             <div class="flex gap-2">
                 <input type="file" id="fileInput" class="hidden">
-                <button id="attachFileBtn" class="bg-gray-600 hover:bg-gray-700 px-3 sm:px-4 py-2 rounded-lg text-sm" disabled>📎</button>
+                <button id="attachFileBtn" class="bg-gray-600 hover:bg-gray-700 px-3 sm:px-4 py-2 rounded-lg text-sm disabled:opacity-50" disabled title="Wait for user to connect">📎</button>
                 <input id="chatInput" type="text" placeholder="Type a message..." class="flex-1 bg-gray-700 text-white py-2 px-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm" disabled>
                 <button id="sendChatBtn" class="bg-blue-600 hover:bg-blue-700 px-3 sm:px-4 py-2 rounded-lg text-sm" disabled>Send</button>
             </div>
