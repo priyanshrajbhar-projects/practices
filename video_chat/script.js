@@ -1,4 +1,4 @@
-// FINAL CODE (Scroll Fix + Emoji Fix + All Features)
+// FINAL CODE (Mobile Layout Fix + All Features)
 
 // --- DOM Elements ---
 const welcomeScreen = document.getElementById('welcomeScreen');
@@ -51,6 +51,7 @@ const peerAudioStatus = document.getElementById('peerAudioStatus');
 const callInfoContainer = document.getElementById('callInfoContainer');
 
 // --- Global Variables ---
+// (Yahi section hai jo shayad miss ho gaya tha)
 let currentStream;
 let remoteStream;
 let peerConnection;
@@ -822,7 +823,7 @@ function checkMicVolume() {
     if (!analyser) return;
     
     // Check if mic is muted
-    if (!currentStream.getAudioTracks()[0].enabled) {
+    if (!currentStream || !currentStream.getAudioTracks()[0] || !currentStream.getAudioTracks()[0].enabled) {
         localVideoContainer.classList.remove('speaking');
         if (speakingTimer) clearTimeout(speakingTimer);
         speakingTimer = null;
