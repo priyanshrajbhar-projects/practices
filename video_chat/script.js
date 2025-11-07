@@ -1,5 +1,4 @@
-// FINAL CODE (with Reactions, Mobile Screen Share Fix, Popup Fix)
-// FIX: Renamed copyUrlBtn function to copyShareUrl to avoid declaration conflict
+// FINAL CODE (Scroll Fix + Emoji Fix + All Features)
 
 // --- DOM Elements ---
 const welcomeScreen = document.getElementById('welcomeScreen');
@@ -18,7 +17,8 @@ const videoContainer = document.getElementById('videoContainer');
 const localVideo = document.getElementById('localVideo');
 const remoteVideo = document.getElementById('remoteVideo');
 const remoteVideoPlaceholder = document.getElementById('remoteVideoPlaceholder');
-const animationContainer = document.getElementById('animationContainer'); // NEW
+const animationContainer = document.getElementById('animationContainer'); 
+const localVideoContainer = document.getElementById('localVideoContainer');
 
 const controlsContainer = document.getElementById('controlsContainer');
 const muteBtn = document.getElementById('muteBtn');
@@ -34,6 +34,8 @@ const shareBtn = document.getElementById('shareBtn');
 const chatMessages = document.getElementById('chatMessages');
 const chatInput = document.getElementById('chatInput');
 const sendChatBtn = document.getElementById('sendChatBtn');
+const fileInput = document.getElementById('fileInput');
+const attachFileBtn = document.getElementById('attachFileBtn');
 
 const shareModal = document.getElementById('shareModal');
 const shareUrl = document.getElementById('shareUrl');
@@ -71,6 +73,15 @@ let shortPin;
 let mediaRecorder;
 let recordedChunks = [];
 let isRecording = false;
+
+// File Sharing
+const CHUNK_SIZE = 64000; // 64KB chunks
+let receiveBuffer = [];
+let receivedFileSize = 0;
+let fileInProgress = null;
+
+// Speaking Indicator
+let audioContext, analyser, source, dataArray, speakingTimer;
 
 // Listeners
 let unsubscribeRoom;
@@ -125,7 +136,6 @@ function initHome() {
     createRoomBtn.onclick = createRoom;
     joinRoomBtn.onclick = () => joinRoom(joinRoomInput.value);
     
-    // Simple button listeners
     muteBtn.onclick = toggleAudio;
     videoBtn.onclick = toggleVideo;
     switchCameraBtn.onclick = switchCamera;
@@ -138,11 +148,14 @@ function initHome() {
         if (e.key === 'Enter') sendChatMessage();
     };
 
+    attachFileBtn.onclick = () => fileInput.click();
+    fileInput.onchange = onFileSelected;
+
     shareBtn.onclick = showShareModal;
     closeModalBtn.onclick = () => shareModal.classList.add('hidden');
-    copyUrlBtn.onclick = copyShareUrl; // FIX: Was pointing to a non-existent function
+    copyUrlBtn.onclick = copyShareUrl;
 
-    // NEW: Reaction Listeners
+    // REACTION FIX: 'true' parameter hata diya
     document.getElementById('react-thumbsup').onclick = () => sendReaction('👍');
     document.getElementById('react-heart').onclick = () => sendReaction('❤️');
     document.getElementById('react-laugh').onclick = () => sendReaction('😂');
@@ -159,30 +172,25 @@ function checkUrlForRoom() {
 
 // --- Tooltip Function (POPUP FIX) ---
 function showTooltip(message, type = 'success') {
-    console.log('Tooltip Check:', message); // DEBUG: Check if function is called
-    const tooltip = document.getElementById('tooltip');
-    if (!tooltip) return;
+    // console.log('Tooltip Check:', message); // DEBUG
+    const tooltip = document.getElementById('tooltip'); 
+    if (!tooltip) {
+        console.error("Tooltip element not found!");
+        return;
+    }
     
     tooltip.innerText = message;
     
-    // Purana timer (agar ho) toh clear karo
-    if (tooltipTimer) {
-        clearTimeout(tooltipTimer);
-    }
+    if (tooltipTimer) clearTimeout(tooltipTimer);
 
-    // Color set karo
     if (type === 'error') {
-        tooltip.classList.add('bg-red-500');
-        tooltip.classList.remove('bg-green-500');
+        tooltip.style.backgroundColor = '#ef4444'; // red-500
     } else {
-        tooltip.classList.add('bg-green-500');
-        tooltip.classList.remove('bg-red-500');
+        tooltip.style.backgroundColor = '#22c55e'; // green-500
     }
 
-    // Show karo
     tooltip.classList.add('tooltip-visible');
 
-    // 3 second baad hide karo
     tooltipTimer = setTimeout(() => {
         tooltip.classList.remove('tooltip-visible');
     }, 3000);
@@ -194,9 +202,8 @@ function generatePin() {
 }
 
 // --- Core Functions ---
-
 async function startMedia() {
-    if (currentStream) {
+    if (currentStream) { // Yeh hai line 135
         currentStream.getTracks().forEach(track => track.stop());
     }
 
@@ -206,10 +213,11 @@ async function startMedia() {
             audio: true 
         });
         localVideo.srcObject = currentStream;
-        checkCameraDevices(); 
+        checkCameraDevices();
+        setupAudioAnalysis(); // Speaking indicator setup
     } catch (e) {
         console.error('Error accessing media devices.', e);
-        alert('Could not access camera or mic. Please allow permissions.');
+        alert('Could not access camera or mic.');
     }
 }
 
@@ -227,14 +235,13 @@ async function checkCameraDevices() {
 
 async function switchCamera() {
     facingMode = (facingMode === 'user') ? 'environment' : 'user';
-    await startMedia();
+    await startMedia(); // Re-calls setupAudioAnalysis()
 
     if (peerConnection) {
         const videoTrack = currentStream.getVideoTracks()[0];
         const sender = peerConnection.getSenders().find(s => s.track.kind === 'video');
         if (sender) {
             await sender.replaceTrack(videoTrack);
-            
             showTooltip('Camera switched', 'success');
             sendEventMessage('event', { type: 'camera_switch' });
         }
@@ -242,11 +249,10 @@ async function switchCamera() {
 }
 
 async function createRoom() {
-    await startMedia();
+    await startMedia(); // Yeh hai line 180
     setupRoomUI();
     isRoomCreator = true; 
-
-    // --- NEW PIN LOGIC ---
+    
     shortPin = generatePin();
     const pinRef = db.collection('activePins').doc(shortPin);
 
@@ -258,24 +264,19 @@ async function createRoom() {
         createdAt: firebase.firestore.FieldValue.serverTimestamp() 
     });
     
-    roomCodeDisplay.value = shortPin; // UI mein PIN dikhao
-    updateShareModal(roomId); // Share Modal abhi bhi poora URL dega
+    roomCodeDisplay.value = shortPin;
+    updateShareModal(roomId);
 
     const offerCandidates = roomRef.collection('offerCandidates');
     const answerCandidates = roomRef.collection('answerCandidates');
 
     peerConnection = new RTCPeerConnection(servers);
 
-    // Connection State Listener
     peerConnection.onconnectionstatechange = (event) => {
-        console.log('Connection state changed:', peerConnection.connectionState);
         if (peerConnection.connectionState === 'disconnected' ||
             peerConnection.connectionState === 'failed' ||
             peerConnection.connectionState === 'closed') {
-            
-            setTimeout(() => {
-                hangUp();
-            }, 2000);
+            setTimeout(() => hangUp(), 2000);
         }
     };
 
@@ -284,6 +285,7 @@ async function createRoom() {
     });
 
     dataChannel = peerConnection.createDataChannel('chat');
+    dataChannel.binaryType = 'arraybuffer'; // For file sharing
     setupDataChannelEvents(dataChannel);
 
     peerConnection.ontrack = (event) => {
@@ -307,7 +309,6 @@ async function createRoom() {
     unsubscribeRoom = roomRef.onSnapshot(async (snapshot) => {
         const data = snapshot.data();
         if (peerConnection && !peerConnection.currentRemoteDescription && data?.answer) {
-            console.log('Got answer');
             const answerDescription = new RTCSessionDescription(data.answer);
             await peerConnection.setRemoteDescription(answerDescription);
         }
@@ -330,17 +331,14 @@ async function joinRoom(pin) {
     }
 
     let actualRoomId;
-
     try {
         const pinRef = db.collection('activePins').doc(pin);
         const pinDoc = await pinRef.get();
-
         if (!pinDoc.exists) {
             alert('PIN does not exist or has expired.');
             return;
         }
         actualRoomId = pinDoc.data().roomId;
-
     } catch (error) {
         console.error('Error looking up PIN:', error);
         alert('Could not find room.');
@@ -352,11 +350,7 @@ async function joinRoom(pin) {
     setupRoomUI();
     isRoomCreator = false; 
     
-    const roomCodeSection = document.getElementById('roomCodeSection');
-    if (roomCodeSection) {
-        roomCodeSection.style.display = 'none';
-    }
-    
+    document.getElementById('roomCodeSection').style.display = 'none';
     console.log('Joining room:', roomId);
 
     const roomRef = db.collection('rooms').doc(roomId);
@@ -370,16 +364,11 @@ async function joinRoom(pin) {
 
     peerConnection = new RTCPeerConnection(servers);
 
-    // Connection State Listener
     peerConnection.onconnectionstatechange = (event) => {
-        console.log('Connection state changed:', peerConnection.connectionState);
         if (peerConnection.connectionState === 'disconnected' ||
             peerConnection.connectionState === 'failed' ||
             peerConnection.connectionState === 'closed') {
-            
-            setTimeout(() => {
-                hangUp();
-            }, 2000);
+            setTimeout(() => hangUp(), 2000);
         }
     };
 
@@ -401,6 +390,7 @@ async function joinRoom(pin) {
 
     peerConnection.ondatachannel = (event) => {
         dataChannel = event.channel;
+        dataChannel.binaryType = 'arraybuffer'; // For file sharing
         setupDataChannelEvents(dataChannel);
     };
 
@@ -424,17 +414,17 @@ async function joinRoom(pin) {
 }
 
 
-// --- Data Channel (Chat & Events) Functions ---
-
+// --- Data Channel (Chat, Events, Files) Functions ---
 function setupDataChannelEvents(channel) {
     channel.onopen = () => {
         console.log('Data channel open');
         chatInput.disabled = false;
         sendChatBtn.disabled = false;
+        fileInput.disabled = false;
+        attachFileBtn.disabled = false;
         
         startCallTimer(); 
         startNetworkMonitoring();
-        
         sendEventMessage('hello', {});
     };
     
@@ -442,9 +432,12 @@ function setupDataChannelEvents(channel) {
         console.log('Data channel closed');
         chatInput.disabled = true;
         sendChatBtn.disabled = true;
+        fileInput.disabled = true;
+        attachFileBtn.disabled = true;
         
         showTooltip(`${remoteUserName} disconnected.`, 'error');
         stopNetworkMonitoring();
+        if (audioContext) audioContext.close();
         
         peerStatus.classList.add('hidden');
         peerVideoStatus.classList.add('hidden');
@@ -452,6 +445,11 @@ function setupDataChannelEvents(channel) {
     };
     
     channel.onmessage = (event) => {
+        if (event.data instanceof ArrayBuffer) {
+            handleFileChunk(event.data);
+            return;
+        }
+
         try {
             const data = JSON.parse(event.data);
             
@@ -477,9 +475,17 @@ function setupDataChannelEvents(channel) {
                     showTooltip(`${remoteUserName} started sharing screen`, 'success');
                 } else if (data.payload.type === 'screen_share_off') {
                     showTooltip(`${remoteUserName} stopped sharing screen`, 'success');
+                } else if (data.payload.type === 'speaking') {
+                    remoteVideo.classList.add('speaking');
+                } else if (data.payload.type === 'stopped_speaking') {
+                    remoteVideo.classList.remove('speaking');
                 }
-            } else if (data.type === 'reaction') { // NEW: Handle Reactions
+
+            } else if (data.type === 'reaction') { // Emoji Fix: Sirf receive hone par show hoga
                 showFloatingEmoji(data.payload.emoji);
+            
+            } else if (data.type === 'file') {
+                handleFileEvent(data.payload, data.sender);
             }
 
         } catch (error) {
@@ -488,11 +494,10 @@ function setupDataChannelEvents(channel) {
     };
 }
 
-// Send Event/Status/Chat Message
 function sendEventMessage(type, payload) {
     if (dataChannel && dataChannel.readyState === 'open') {
         const data = {
-            type: type, // 'status', 'event', 'hello', 'reaction'
+            type: type,
             sender: userName,
             payload: payload
         };
@@ -500,14 +505,9 @@ function sendEventMessage(type, payload) {
     }
 }
 
-// Handle Peer Status UI
 function handlePeerStatus(media, enabled) {
-    if (media === 'video') {
-        peerVideoStatus.classList.toggle('hidden', enabled);
-    } else if (media === 'audio') {
-        peerAudioStatus.classList.toggle('hidden', enabled);
-    }
-    
+    if (media === 'video') peerVideoStatus.classList.toggle('hidden', enabled);
+    else if (media === 'audio') peerAudioStatus.classList.toggle('hidden', enabled);
     const isVideoOff = !peerVideoStatus.classList.contains('hidden');
     const isAudioOff = !peerAudioStatus.classList.contains('hidden');
     peerStatus.classList.toggle('hidden', !isVideoOff && !isAudioOff);
@@ -516,18 +516,12 @@ function handlePeerStatus(media, enabled) {
 function sendChatMessage() {
     const message = chatInput.value;
     if (message.trim() === '') return;
-
-    const data = {
-        type: 'chat',
-        sender: userName,
-        text: message
-    };
-
-    if (dataChannel && dataChannel.readyState === 'open') {
-        dataChannel.send(JSON.stringify(data));
-        displayChatMessage(message, 'You');
-        chatInput.value = '';
-    }
+    
+    // Chat ko bhi event ki tarah bhejo
+    sendEventMessage('chat', { text: message }); 
+    
+    displayChatMessage(message, 'You');
+    chatInput.value = '';
 }
 
 function displayChatMessage(message, sender) {
@@ -539,23 +533,35 @@ function displayChatMessage(message, sender) {
         msgDiv.innerHTML = `<span class="font-bold">You:</span> ${message}`;
     } else {
         msgDiv.classList.add('bg-gray-600', 'text-white', 'self-start', 'mr-auto');
-        msgDiv.innerHTML = `<span class="font-bold">${sender}:</span> ${message}`;
+        if (sender === 'System') {
+            msgDiv.classList.add('bg-purple-600', 'self-center', 'text-center');
+            msgDiv.innerHTML = `<span class="font-bold">${message}</span>`;
+        } else {
+            msgDiv.innerHTML = `<span class="font-bold">${sender}:</span> ${message}`;
+        }
     }
+    
+    if (message.includes('file-progress-')) {
+        msgDiv.id = message.split(' ')[0];
+    }
+
     chatMessages.appendChild(msgDiv);
     chatMessages.scrollTop = chatMessages.scrollHeight;
 }
 
 // --- UI & Control Functions ---
-
 function setupRoomUI() {
     homeScreen.classList.add('hidden');
     roomScreen.classList.remove('hidden');
+    
+    // Buttons disabled rahenge jab tak data channel open na ho
     chatInput.disabled = true;
     sendChatBtn.disabled = true;
+    fileInput.disabled = true;
+    attachFileBtn.disabled = true; 
+    
     remoteVideoPlaceholder.classList.remove('hidden');
 
-    // NEW: Mobile Screen Share Fix
-    // Agar device 'getDisplayMedia' support nahi karta (e.g., mobile), button chhipa do
     if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
         console.log('Screen sharing not supported on this device.');
         screenShareBtn.style.display = 'none';
@@ -565,13 +571,8 @@ function setupRoomUI() {
 function updateShareModal(id) {
     const url = `${window.location.origin}${window.location.pathname}?room=${id}`;
     shareUrl.value = url;
-
     qrcodeDiv.innerHTML = '';
-    new QRCode(qrcodeDiv, {
-        text: url,
-        width: 192,
-        height: 192
-    });
+    new QRCode(qrcodeDiv, { text: url, width: 192, height: 192 });
 }
 
 function toggleAudio() {
@@ -585,6 +586,12 @@ function toggleAudio() {
 
     showTooltip(enabled ? 'Unmuted' : 'You are muted', 'success');
     sendEventMessage('status', { media: 'audio', enabled: enabled });
+
+    // Speaking indicator ko update karo
+    if (!enabled) {
+        localVideoContainer.classList.remove('speaking');
+        sendEventMessage('event', { type: 'stopped_speaking' });
+    }
 }
 
 function toggleVideo() {
@@ -601,7 +608,6 @@ function toggleVideo() {
 }
 
 // --- Screen Share Functions ---
-
 async function toggleScreenShare() {
     if (!isScreenSharing) {
         try {
@@ -657,9 +663,8 @@ async function stopScreenShare() {
 }
 
 // --- Call Timer Functions ---
-
 function startCallTimer() {
-    callInfoContainer.classList.remove('hidden'); // Show poora container
+    callInfoContainer.classList.remove('hidden');
     callStartTime = Date.now();
 
     callTimerInterval = setInterval(() => {
@@ -669,7 +674,7 @@ function startCallTimer() {
 }
 
 function stopCallTimer() {
-    callInfoContainer.classList.add('hidden'); // Hide poora container
+    callInfoContainer.classList.add('hidden');
     if (callTimerInterval) {
         clearInterval(callTimerInterval);
     }
@@ -680,23 +685,16 @@ function formatTime(totalSeconds) {
     totalSeconds %= 3600;
     const minutes = Math.floor(totalSeconds / 60);
     const seconds = totalSeconds % 60;
-
-    return [hours, minutes, seconds]
-        .map(v => (v < 10 ? "0" + v : v))
-        .join(":");
+    return [hours, minutes, seconds].map(v => (v < 10 ? "0" + v : v)).join(":");
 }
 
 // --- Network & Quality Monitoring ---
-
 function startNetworkMonitoring() {
     networkStatsInterval = setInterval(async () => {
         if (!peerConnection) return;
-
         try {
             const stats = await peerConnection.getStats();
-            let roundTripTime = 0;
-            let frameHeight = 0; 
-
+            let roundTripTime = 0, frameHeight = 0; 
             stats.forEach(report => {
                 if (report.type === 'remote-inbound-rtp' && report.roundTripTime) {
                     roundTripTime = report.roundTripTime * 1000;
@@ -706,7 +704,6 @@ function startNetworkMonitoring() {
                 }
             });
 
-            // Network UI Update
             const icon = document.getElementById('networkIcon');
             const speedText = document.getElementById('networkSpeed');
             speedText.innerText = `${roundTripTime.toFixed(0)} ms`;
@@ -714,15 +711,13 @@ function startNetworkMonitoring() {
             else if (roundTripTime < 300) icon.className = 'net-medium';
             else icon.className = 'net-bad';
 
-            // Quality UI Update
             const qualityLabel = document.getElementById('qualityLabel');
             if (frameHeight > 0) qualityLabel.innerText = `${frameHeight}p`;
             else qualityLabel.innerText = '--p';
-
         } catch (error) {
             console.warn('Could not get network stats:', error);
         }
-    }, 3000); // Har 3 second mein check karo
+    }, 3000);
 }
 
 function stopNetworkMonitoring() {
@@ -732,7 +727,6 @@ function stopNetworkMonitoring() {
 }
 
 // --- Recording Functions ---
-
 function toggleRecording() {
     if (isRecording) {
         stopRecording();
@@ -746,32 +740,19 @@ function startRecording() {
         showTooltip('Wait for the other user to join', 'error');
         return;
     }
-
     recordedChunks = [];
-    const combinedStream = new MediaStream([
-        ...currentStream.getTracks(),
-        ...remoteStream.getTracks()
-    ]);
-
+    const combinedStream = new MediaStream([ ...currentStream.getTracks(), ...remoteStream.getTracks() ]);
     try {
-        mediaRecorder = new MediaRecorder(combinedStream, {
-            mimeType: 'video/webm; codecs=vp9,opus'
-        });
-
+        mediaRecorder = new MediaRecorder(combinedStream, { mimeType: 'video/webm; codecs=vp9,opus' });
         mediaRecorder.ondataavailable = (event) => {
-            if (event.data.size > 0) {
-                recordedChunks.push(event.data);
-            }
+            if (event.data.size > 0) recordedChunks.push(event.data);
         };
-
         mediaRecorder.onstop = downloadRecording;
-
         mediaRecorder.start();
         isRecording = true;
         recordBtn.classList.add('bg-red-600');
         recordBtn.classList.remove('bg-gray-600');
         showTooltip('Recording started', 'success');
-
     } catch (error) {
         console.error('Error starting recording:', error);
         showTooltip('Could not start recording', 'error');
@@ -789,9 +770,7 @@ function stopRecording() {
 }
 
 function downloadRecording() {
-    const blob = new Blob(recordedChunks, {
-        type: 'video/webm'
-    });
+    const blob = new Blob(recordedChunks, { type: 'video/webm' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     document.body.appendChild(a);
@@ -805,12 +784,9 @@ function downloadRecording() {
 }
 
 
-// --- Reaction Functions (NEW) ---
-
+// --- Reaction Functions (FIXED) ---
 function sendReaction(emoji) {
-    // Show locally
-    showFloatingEmoji(emoji);
-    // Send to peer
+    // Sirf remote peer ko send karo
     sendEventMessage('reaction', { emoji: emoji });
 }
 
@@ -818,63 +794,212 @@ function showFloatingEmoji(emoji) {
     const emojiSpan = document.createElement('span');
     emojiSpan.innerText = emoji;
     emojiSpan.className = 'floating-emoji';
-    // Random horizontal start
     emojiSpan.style.left = (Math.random() * 80 + 10) + '%';
-    
     animationContainer.appendChild(emojiSpan);
-    
-    // Remove after animation
     emojiSpan.onanimationend = () => {
         emojiSpan.remove();
     };
 }
 
+// --- Speaking Indicator Functions ---
+function setupAudioAnalysis() {
+    if (audioContext) audioContext.close();
+    if (!currentStream || currentStream.getAudioTracks().length === 0) {
+        console.warn('No audio track to analyze.');
+        return;
+    }
+    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    analyser = audioContext.createAnalyser();
+    analyser.fftSize = 512;
+    source = audioContext.createMediaStreamSource(currentStream);
+    source.connect(analyser);
+    const bufferLength = analyser.frequencyBinCount;
+    dataArray = new Uint8Array(bufferLength);
+    checkMicVolume();
+}
+
+function checkMicVolume() {
+    if (!analyser) return;
+    
+    // Check if mic is muted
+    if (!currentStream.getAudioTracks()[0].enabled) {
+        localVideoContainer.classList.remove('speaking');
+        if (speakingTimer) clearTimeout(speakingTimer);
+        speakingTimer = null;
+        requestAnimationFrame(checkMicVolume);
+        return;
+    }
+    
+    analyser.getByteFrequencyData(dataArray);
+    let sum = 0;
+    for(let i = 0; i < dataArray.length; i++) sum += dataArray[i];
+    const avg = sum / dataArray.length;
+
+    if (avg > 30) { 
+        if (!localVideoContainer.classList.contains('speaking')) {
+            localVideoContainer.classList.add('speaking');
+            sendEventMessage('event', { type: 'speaking' });
+        }
+        clearTimeout(speakingTimer);
+        speakingTimer = setTimeout(() => {
+            localVideoContainer.classList.remove('speaking');
+            sendEventMessage('event', { type: 'stopped_speaking' });
+            speakingTimer = null;
+        }, 1000);
+    }
+    requestAnimationFrame(checkMicVolume);
+}
+
+
+// --- File Sharing Functions ---
+function onFileSelected(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    console.log("File selected:", file.name); // DEBUG
+
+    if (file.size > 100 * 1024 * 1024) { // 100MB Limit
+        showTooltip('File is too large (max 100MB)', 'error');
+        return;
+    }
+    if (fileInProgress) {
+        showTooltip('Another file transfer is already in progress.', 'error');
+        return;
+    }
+    
+    fileInProgress = { name: file.name, size: file.size, type: file.type };
+    
+    sendEventMessage('file', { type: 'start', ...fileInProgress });
+    displayChatMessage(`file-progress-${file.name} Sending ${file.name} (0%)`, 'You');
+    
+    const fileReader = new FileReader();
+    fileReader.onload = (event) => {
+        const buffer = event.target.result;
+        let offset = 0;
+
+        function sendNextChunk() {
+            if (offset >= buffer.byteLength) {
+                // Done
+                sendEventMessage('file', { type: 'end', name: file.name });
+                fileInProgress = null;
+                console.log('File sending finished.');
+                return;
+            }
+            
+            // Check buffer
+            if (dataChannel.bufferedAmount > CHUNK_SIZE * 10) { // Buffer limit
+                setTimeout(sendNextChunk, 100);
+                return;
+            }
+            
+            const chunk = buffer.slice(offset, offset + CHUNK_SIZE);
+            dataChannel.send(chunk);
+            offset += chunk.length;
+            
+            const percent = Math.floor((offset / buffer.byteLength) * 100);
+            updateFileProgress(file.name, `Sending ${file.name} (${percent}%)`, 'You');
+
+            // Send next chunk
+            setTimeout(sendNextChunk, 0); 
+        }
+        sendNextChunk();
+    };
+    fileReader.readAsArrayBuffer(file);
+    fileInput.value = null;
+}
+
+function handleFileChunk(chunk) {
+    if (!fileInProgress) return;
+    receiveBuffer.push(chunk);
+    receivedFileSize += chunk.byteLength;
+    const percent = Math.floor((receivedFileSize / fileInProgress.size) * 100);
+    updateFileProgress(fileInProgress.name, `Receiving ${fileInProgress.name} (${percent}%)`, 'System');
+}
+
+function handleFileEvent(payload, sender) {
+    if (payload.type === 'start') {
+        if (fileInProgress) {
+            console.warn('Another file transfer is in progress. Ignoring new file.');
+            return;
+        }
+        fileInProgress = payload;
+        receiveBuffer = [];
+        receivedFileSize = 0;
+        displayChatMessage(`file-progress-${payload.name} Receiving ${payload.name} (0%)`, 'System');
+        console.log('File receiving started:', payload.name);
+    
+    } else if (payload.type === 'end') {
+        if (!fileInProgress || fileInProgress.name !== payload.name) return;
+        downloadReceivedFile();
+        updateFileProgress(payload.name, `File received: ${payload.name}`, 'System');
+        console.log('File receiving finished:', payload.name);
+        fileInProgress = null;
+    }
+}
+
+function downloadReceivedFile() {
+    const blob = new Blob(receiveBuffer, { type: fileInProgress.type });
+    receiveBuffer = [];
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fileInProgress.name;
+    document.body.appendChild(a);
+    a.style = 'display: none';
+    a.click();
+    window.URL.revokeObjectURL(url);
+    document.body.removeChild(a);
+}
+
+function updateFileProgress(fileName, message, sender) {
+    const progressId = `file-progress-${fileName}`;
+    let msgDiv = document.getElementById(progressId);
+    
+    if (msgDiv) {
+        if (sender === 'You') {
+            msgDiv.innerHTML = `<span class="font-bold">You:</span> ${message}`;
+        } else {
+            msgDiv.innerHTML = `<span class="font-bold">${message}</span>`;
+        }
+    } else {
+        displayChatMessage(`${progressId} ${message}`, sender);
+    }
+}
+
 
 // --- Hangup Function ---
-
 async function hangUp() {
-    if (isRecording) { // Recording stop karo
-        stopRecording();
-    }
+    if (isRecording) stopRecording();
     stopCallTimer();
     stopNetworkMonitoring();
+    if (audioContext) audioContext.close();
+    clearTimeout(speakingTimer);
 
     if (unsubscribeRoom) unsubscribeRoom();
     if (unsubscribeOfferCandidates) unsubscribeOfferCandidates();
     if (unsubscribeAnswerCandidates) unsubscribeAnswerCandidates();
 
-    if (dataChannel) {
-        dataChannel.close();
-    }
+    if (dataChannel) dataChannel.close();
     if (peerConnection) {
         peerConnection.onconnectionstatechange = null;
         peerConnection.close();
     }
-    if (currentStream) {
-        currentStream.getTracks().forEach(track => track.stop());
-    }
-    if (screenStream) {
-        screenStream.getTracks().forEach(track => track.stop());
-    }
+    if (currentStream) currentStream.getTracks().forEach(track => track.stop());
+    if (screenStream) screenStream.getTracks().forEach(track => track.stop());
 
     if (roomId && db) {
         try {
             const roomRef = db.collection('rooms').doc(roomId);
-            
             if (isRoomCreator) {
                 console.log('Creator cleaning up room...');
                 const offerCandidates = await roomRef.collection('offerCandidates').get();
                 offerCandidates.forEach(async (doc) => await doc.ref.delete());
-                
                 const answerCandidates = await roomRef.collection('answerCandidates').get();
                 answerCandidates.forEach(async (doc) => await doc.ref.delete());
-                
                 if (shortPin) {
                     await db.collection('activePins').doc(shortPin).delete();
                 }
-                
                 await roomRef.delete();
-
             } else {
                 console.log('Joiner cleaning up candidates...');
                 const answerCandidates = await roomRef.collection('answerCandidates').get();
@@ -884,18 +1009,14 @@ async function hangUp() {
             console.warn("Harmless error cleaning up firestore:", error.message);
         }
     }
-
     window.location.href = window.location.pathname;
 }
 
 // --- Modal Functions ---
-
 function showShareModal() {
     shareModal.classList.remove('hidden');
 }
 
-// *** THIS IS THE FIX ***
-// Renamed function from copyUrlBtn to copyShareUrl
 function copyShareUrl() {
     shareUrl.select();
     navigator.clipboard.writeText(shareUrl.value);
