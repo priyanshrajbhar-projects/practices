@@ -1,26 +1,12 @@
 [build]
-  # Agar specific folder deploy karna hai
-  # base = "your-project-folder"
-  
-  # Build command (agar React/Vite hai)
-  command = "npm run build"
-  
-  # Publish directory (build output folder)
-  publish = "dist"
-  
-  # Functions directory
-  functions = "netlify/functions"
+  base = "video_chat"  # Agar directly root folder se build kar rahe ho
+  command = "npm run build"  # Build command, agar tum React/Vite app banate ho
+  publish = "dist"  # Final output folder (React / Vite default: dist)
 
-# Redirects for cleaner API URLs
+[functions]
+  directory = "netlify/functions" # Serverless functions folder
+
 [[redirects]]
   from = "/api/*"
   to = "/.netlify/functions/:splat"
   status = 200
-  force = true
-
-# Headers for security
-[[headers]]
-  for = "/*"
-  [headers.values]
-    X-Frame-Options = "DENY"
-    X-Content-Type-Options = "nosniff"
