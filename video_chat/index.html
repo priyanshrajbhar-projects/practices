@@ -24,12 +24,13 @@
             object-fit: contain; /* Ensures screen share fits */
         }
 
-        /* Tooltip Style */
+        /* Tooltip Style (POPUP FIX) */
         #tooltip {
             transition: transform 0.3s ease-in-out, opacity 0.3s ease-in-out;
             transform: translateY(100px); /* Hidden state */
             opacity: 0;
             pointer-events: none; /* Taa ki click na ho */
+            z-index: 100; /* Hamesha upar dikhega */
         }
         .tooltip-visible {
             transform: translateY(-20px); /* Visible state */
@@ -93,13 +94,18 @@
         <div class="flex-1 flex flex-col"> 
             <div id="videoContainer" class="bg-gray-800 w-full h-full flex items-center justify-center overflow-hidden shadow-2xl relative">
                 
-                <div id="callTimer" class="hidden absolute top-3 left-3 bg-gray-900 bg-opacity-70 text-white text-sm px-3 py-1 rounded-lg z-10">
-                    00:00:00
-                </div>
-
-                <div id="networkStatus" class="hidden absolute top-3 left-24 bg-gray-900 bg-opacity-70 text-white text-sm px-3 py-1 rounded-lg z-10 flex items-center gap-1">
-                    <span id="networkIcon" class="net-good">●</span>
-                    <span id="networkSpeed">-- ms</span>
+                <div id="callInfoContainer" class="hidden absolute top-3 left-3 z-10 flex gap-2">
+                    <div id="callTimer" class="bg-gray-900 bg-opacity-70 text-white text-sm px-3 py-1 rounded-lg">
+                        00:00:00
+                    </div>
+                    <div id="networkStatus" class="bg-gray-900 bg-opacity-70 text-white text-sm px-3 py-1 rounded-lg flex items-center gap-1">
+                        <span id="networkIcon" class="net-good">●</span>
+                        <span id="networkSpeed">-- ms</span>
+                    </div>
+                    <div id="videoQuality" class="bg-gray-900 bg-opacity-70 text-white text-sm px-3 py-1 rounded-lg flex items-center gap-1">
+                        <span>📹</span>
+                        <span id="qualityLabel">--p</span>
+                    </div>
                 </div>
 
                 <video id="remoteVideo" autoplay playsinline class="h-full w-full"></video>
@@ -116,11 +122,12 @@
                     <video id="localVideo" autoplay playsinline muted class="h-full w-full"></video>
                 </div>
 
-                <div id="controlsContainer" class="absolute bottom-3 left-1/2 -translate-x-1/2 flex gap-2 sm:gap-3 bg-gray-800 bg-opacity-80 p-2 sm:p-3 rounded-full shadow-lg">
+                <div id="controlsContainer" class="absolute bottom-3 left-1/2 -translate-x-1/2 flex gap-2 sm:gap-3 bg-gray-800 bg-opacity-80 p-2 sm:p-3 rounded-full shadow-lg z-10">
                     <button id="muteBtn" class="w-10 h-10 sm:w-11 sm:h-11 bg-blue-600 hover:bg-blue-700 rounded-full flex items-center justify-center text-lg sm:text-xl transition">🔇</button>
                     <button id="videoBtn" class="w-10 h-10 sm:w-11 sm:h-11 bg-blue-600 hover:bg-blue-700 rounded-full flex items-center justify-center text-lg sm:text-xl transition">📹</button>
                     <button id="switchCameraBtn" class="hidden w-10 h-10 sm:w-11 sm:h-11 bg-gray-600 hover:bg-gray-700 rounded-full flex items-center justify-center text-lg sm:text-xl transition">🔄</button>
                     <button id="screenShareBtn" class="w-10 h-10 sm:w-11 sm:h-11 bg-gray-600 hover:bg-gray-700 rounded-full flex items-center justify-center text-lg sm:text-xl transition">💻</button>
+                    <button id="recordBtn" class="w-10 h-10 sm:w-11 sm:h-11 bg-gray-600 hover:bg-gray-700 rounded-full flex items-center justify-center text-lg sm:text-xl transition">⏺</button>
                     <button id="hangupBtn" class="w-10 h-10 sm:w-11 sm:h-11 bg-red-600 hover:bg-red-700 rounded-full flex items-center justify-center text-lg sm:text-xl transition">📞</button>
                 </div>
             </div>
