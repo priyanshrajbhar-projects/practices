@@ -51,7 +51,9 @@ let userName = 'Guest';
 let facingMode = 'user';
 let db;
 let isRoomCreator = false; // Track if user created the room
-
+let isScreenSharing = false;
+let screenStream;
+// ...
 // Listeners
 let unsubscribeRoom;
 let unsubscribeOfferCandidates;
@@ -104,6 +106,8 @@ function setupWelcomeScreen() {
 function initHome() {
     createRoomBtn.onclick = createRoom;
     joinRoomBtn.onclick = () => joinRoom(joinRoomInput.value);
+    hangupBtn.onclick = hangUp;
+    document.getElementById('screenShareBtn').onclick = toggleScreenShare;
     
     // Simple button listeners
     muteBtn.onclick = toggleAudio;
@@ -461,6 +465,58 @@ function toggleVideo() {
     videoBtn.classList.toggle('bg-gray-600', !videoTrack.enabled);
 
     sendPeerStatus('video', videoTrack.enabled);
+}
+
+async function toggleScreenShare() {
+    if (!isScreenSharing) {
+        // Start screen sharing
+        try {
+            screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+            const screenTrack = screenStream.getVideoTracks()[0];
+            
+            // Replace camera track with screen track
+            if (peerConnection) {
+                const sender = peerConnection.getSenders().find(s => s.track.kind === 'video');
+                if (sender) {
+                    await sender.replaceTrack(screenTrack);
+                }
+            }
+
+            // Update UI
+            isScreenSharing = true;
+            document.getElementById('screenShareBtn').classList.add('bg-blue-600'); // Active state
+            
+            // Listen for when the user clicks "Stop Sharing" in the browser UI
+            screenTrack.onended = () => {
+                stopScreenShare();
+            };
+
+        } catch (error) {
+            console.error('Error starting screen share:', error);
+        }
+    } else {
+        // Stop screen sharing
+        await stopScreenShare();
+    }
+}
+
+async function stopScreenShare() {
+    if (screenStream) {
+        screenStream.getTracks().forEach(track => track.stop());
+    }
+
+    // Revert to camera
+    if (currentStream && peerConnection) {
+        const videoTrack = currentStream.getVideoTracks()[0];
+        const sender = peerConnection.getSenders().find(s => s.track.kind === 'video');
+        if (sender) {
+            await sender.replaceTrack(videoTrack);
+        }
+    }
+    
+    // Update UI
+    isScreenSharing = false;
+    document.getElementById('screenShareBtn').classList.remove('bg-blue-600');
 }
 
 async function hangUp() {
