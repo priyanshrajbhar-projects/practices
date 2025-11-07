@@ -55,6 +55,8 @@ let isScreenSharing = false;
 let screenStream;
 let callTimerInterval; // Timer ka interval ID
 let callStartTime;     // Call kab shuru hua
+let remoteUserName = 'Peer'; // NEW: Doosre user ka naam store karega
+let networkStatsInterval;    // NEW: Network stats check karne ke liye
 // ...
 // Listeners
 let unsubscribeRoom;
@@ -194,6 +196,8 @@ async function switchCamera() {
         const sender = peerConnection.getSenders().find(s => s.track.kind === 'video');
         if (sender) {
             sender.replaceTrack(videoTrack);
+            showTooltip('Camera switched', 'success');
+            sendEventMessage('event', { type: 'camera_switch' });
             sendPeerStatus('video', videoTrack.enabled);
         }
     }
@@ -363,23 +367,30 @@ async function joinRoom(id) {
 
 // --- Data Channel (Chat) Functions ---
 
+// REPLACE your entire old setupDataChannelEvents function with this new one
 function setupDataChannelEvents(channel) {
     channel.onopen = () => {
         console.log('Data channel open');
         chatInput.disabled = false;
         sendChatBtn.disabled = false;
-        showTooltip('User connected!', 'success'); 
-        startCallTimer();
         
-        sendPeerStatus('audio', currentStream.getAudioTracks()[0].enabled);
-        sendPeerStatus('video', currentStream.getVideoTracks()[0].enabled);
+        // Timer aur Network Monitor start karo
+        startCallTimer(); 
+        startNetworkMonitoring();
+        
+        // Peer ko apna naam bhejo
+        sendEventMessage('hello', {});
     };
+    
     channel.onclose = () => {
         console.log('Data channel closed');
         chatInput.disabled = true;
         sendChatBtn.disabled = true;
-        showTooltip('User disconnected.', 'error');
         
+        showTooltip(`${remoteUserName} disconnected.`, 'error');
+        stopNetworkMonitoring(); // Monitor band karo
+        
+        // Status overlay reset karo
         peerStatus.classList.add('hidden');
         peerVideoStatus.classList.add('hidden');
         peerAudioStatus.classList.add('hidden');
@@ -389,12 +400,36 @@ function setupDataChannelEvents(channel) {
         try {
             const data = JSON.parse(event.data);
             
-            if (data.type === 'chat') {
-                // Display message with proper sender name
+            if (data.type === 'hello') {
+                // Peer ka naam store karo aur popup dikhao
+                remoteUserName = data.sender;
+                showTooltip(`${remoteUserName} connected!`, 'success');
+            
+            } else if (data.type === 'chat') {
+                // Chat message
                 displayChatMessage(data.text, data.sender);
+            
             } else if (data.type === 'status') {
-                handlePeerStatus(data.media, data.enabled);
+                // Mute/Video status
+                handlePeerStatus(data.payload.media, data.payload.enabled);
+                // Remote popup dikhao
+                if (data.payload.media === 'audio') {
+                    showTooltip(`${remoteUserName} ${data.payload.enabled ? 'is unmuted' : 'is muted'}`, 'success');
+                } else if (data.payload.media === 'video') {
+                    showTooltip(`${remoteUserName} ${data.payload.enabled ? 'turned camera on' : 'turned camera off'}`, 'success');
+                }
+            
+            } else if (data.type === 'event') {
+                // Doosre events
+                if (data.payload.type === 'camera_switch') {
+                    showTooltip(`${remoteUserName} switched camera`, 'success');
+                } else if (data.payload.type === 'screen_share_on') {
+                    showTooltip(`${remoteUserName} started sharing screen`, 'success');
+                } else if (data.payload.type === 'screen_share_off') {
+                    showTooltip(`${remoteUserName} stopped sharing screen`, 'success');
+                }
             }
+
         } catch (error) {
             console.error('Error parsing message:', error);
         }
@@ -402,12 +437,12 @@ function setupDataChannelEvents(channel) {
 }
 
 // Send Peer Status Function
-function sendPeerStatus(media, enabled) {
+function sendEventMessage(type, payload) {
     if (dataChannel && dataChannel.readyState === 'open') {
         const data = {
-            type: 'status',
-            media: media,
-            enabled: enabled
+            type: type, // 'status', 'event', 'hello'
+            sender: userName,
+            payload: payload // { media: 'audio', enabled: true } OR { type: 'camera_switch' }
         };
         dataChannel.send(JSON.stringify(data));
     }
@@ -484,22 +519,32 @@ function toggleAudio() {
     const audioTrack = currentStream.getAudioTracks()[0];
     audioTrack.enabled = !audioTrack.enabled;
     
-    muteBtn.innerHTML = audioTrack.enabled ? '🔈' : '🔇';
-    muteBtn.classList.toggle('bg-blue-600', audioTrack.enabled);
-    muteBtn.classList.toggle('bg-gray-600', !audioTrack.enabled);
+    const enabled = audioTrack.enabled;
+    muteBtn.innerHTML = enabled ? '🔇' : '🎤';
+    muteBtn.classList.toggle('bg-blue-600', enabled);
+    muteBtn.classList.toggle('bg-gray-600', !enabled);
 
-    sendPeerStatus('audio', audioTrack.enabled);
+    // Show local popup
+    showTooltip(enabled ? 'Unmuted' : 'You are muted', 'success');
+
+    // Send status to peer
+    sendEventMessage('status', { media: 'audio', enabled: enabled });
 }
 
 function toggleVideo() {
     const videoTrack = currentStream.getVideoTracks()[0];
     videoTrack.enabled = !videoTrack.enabled;
     
-    videoBtn.innerHTML = videoTrack.enabled ? '📹' : '🚫';
-    videoBtn.classList.toggle('bg-blue-600', videoTrack.enabled);
-    videoBtn.classList.toggle('bg-gray-600', !videoTrack.enabled);
+    const enabled = videoTrack.enabled;
+    videoBtn.innerHTML = enabled ? '📹' : '🚫';
+    videoBtn.classList.toggle('bg-blue-600', enabled);
+    videoBtn.classList.toggle('bg-gray-600', !enabled);
 
-    sendPeerStatus('video', videoTrack.enabled);
+    // Show local popup
+    showTooltip(enabled ? 'Camera On' : 'Camera Off', 'success');
+
+    // Send status to peer
+    sendEventMessage('status', { media: 'video', enabled: enabled });
 }
 
 async function toggleScreenShare() {
@@ -520,7 +565,8 @@ async function toggleScreenShare() {
             // Update UI
             isScreenSharing = true;
             document.getElementById('screenShareBtn').classList.add('bg-blue-600'); // Active state
-            
+            showTooltip('Started screen sharing', 'success');
+            sendEventMessage('event', { type: 'screen_share_on' });
             // Listen for when the user clicks "Stop Sharing" in the browser UI
             screenTrack.onended = () => {
                 stopScreenShare();
@@ -548,7 +594,8 @@ async function stopScreenShare() {
             await sender.replaceTrack(videoTrack);
         }
     }
-    
+    showTooltip('Stopped screen sharing', 'success');
+    sendEventMessage('event', { type: 'screen_share_off' });
     // Update UI
     isScreenSharing = false;
     document.getElementById('screenShareBtn').classList.remove('bg-blue-600');
@@ -587,9 +634,57 @@ function formatTime(totalSeconds) {
 }
 
 
+// --- Network Monitoring Functions ---
+
+function startNetworkMonitoring() {
+    document.getElementById('networkStatus').classList.remove('hidden');
+
+    networkStatsInterval = setInterval(async () => {
+        if (!peerConnection) return;
+
+        try {
+            const stats = await peerConnection.getStats();
+            let roundTripTime = 0;
+
+            stats.forEach(report => {
+                // 'remote-inbound-rtp' report mein roundTripTime hota hai
+                if (report.type === 'remote-inbound-rtp' && report.roundTripTime) {
+                    // time is in seconds, convert to milliseconds
+                    roundTripTime = report.roundTripTime * 1000;
+                }
+            });
+
+            // UI Update
+            const icon = document.getElementById('networkIcon');
+            const speedText = document.getElementById('networkSpeed');
+
+            speedText.innerText = `${roundTripTime.toFixed(0)} ms`;
+
+            if (roundTripTime < 150) {
+                icon.className = 'net-good'; // Green
+            } else if (roundTripTime < 300) {
+                icon.className = 'net-medium'; // Yellow
+            } else {
+                icon.className = 'net-bad'; // Red
+            }
+
+        } catch (error) {
+            console.warn('Could not get network stats:', error);
+        }
+    }, 3000); // Har 3 second mein check karo
+}
+
+function stopNetworkMonitoring() {
+    if (networkStatsInterval) {
+        clearInterval(networkStatsInterval);
+    }
+    document.getElementById('networkStatus').classList.add('hidden');
+}
+
 async function hangUp() {
     // Unsubscribe from all listeners
     stopCallTimer();
+    stopNetworkMonitoring();
     if (unsubscribeRoom) unsubscribeRoom();
     if (unsubscribeOfferCandidates) unsubscribeOfferCandidates();
     if (unsubscribeAnswerCandidates) unsubscribeAnswerCandidates();
