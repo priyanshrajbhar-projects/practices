@@ -30,12 +30,43 @@
             transform: translateY(100px); /* Hidden state */
             opacity: 0;
             pointer-events: none; /* Taa ki click na ho */
-            z-index: 100; /* Hamesha upar dikhega */
+            z-index: 9999; /* Hamesha upar dikhega */
         }
         .tooltip-visible {
             transform: translateY(-20px); /* Visible state */
             opacity: 1;
         }
+
+        /* --- NEW: Reaction Animation --- */
+        #animationContainer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            pointer-events: none;
+            z-index: 50; /* Above video, below controls */
+        }
+
+        .floating-emoji {
+            position: absolute;
+            bottom: -50px; /* Start from below screen */
+            font-size: 2.5rem;
+            animation: floatUp 4s ease-out;
+        }
+
+        @keyframes floatUp {
+            0% {
+                transform: translateY(0) scale(1);
+                opacity: 1;
+            }
+            100% {
+                transform: translateY(-80vh) scale(1.5); /* Float to top */
+                opacity: 0;
+            }
+        }
+        /* --- End Reaction Animation --- */
 
         /* Mobile Video Screen Fix */
         @media (max-width: 1023px) {
@@ -94,7 +125,7 @@
         <div class="flex-1 flex flex-col"> 
             <div id="videoContainer" class="bg-gray-800 w-full h-full flex items-center justify-center overflow-hidden shadow-2xl relative">
                 
-                <div id="callInfoContainer" class="hidden absolute top-3 left-3 z-10 flex gap-2">
+                <div id="callInfoContainer" class="hidden absolute top-3 left-3 z-20 flex flex-wrap gap-2">
                     <div id="callTimer" class="bg-gray-900 bg-opacity-70 text-white text-sm px-3 py-1 rounded-lg">
                         00:00:00
                     </div>
@@ -108,27 +139,37 @@
                     </div>
                 </div>
 
+                <div id="animationContainer"></div>
+
                 <video id="remoteVideo" autoplay playsinline class="h-full w-full"></video>
                 <p id="remoteVideoPlaceholder" class="absolute text-gray-400">Waiting for other user...</p>
                 
-                <div id="peerStatus" class="hidden absolute inset-0 flex items-center justify-center bg-gray-800 bg-opacity-60">
+                <div id="peerStatus" class="hidden absolute inset-0 flex items-center justify-center bg-gray-800 bg-opacity-60 z-10">
                     <div class="text-center text-white">
                         <p id="peerVideoStatus" class="hidden text-4xl mb-2">🚫📹</p>
                         <p id="peerAudioStatus" class="hidden text-4xl">🚫🔇</p>
                     </div>
                 </div>
 
-                <div class="absolute top-3 right-3 w-24 h-20 sm:w-32 sm:h-24 lg:w-40 lg:h-32 bg-gray-700 rounded-lg overflow-hidden shadow-lg border-2 border-blue-500">
+                <div class="absolute top-3 right-3 w-24 h-20 sm:w-32 sm:h-24 lg:w-40 lg:h-32 bg-gray-700 rounded-lg overflow-hidden shadow-lg border-2 border-blue-500 z-20">
                     <video id="localVideo" autoplay playsinline muted class="h-full w-full"></video>
                 </div>
 
-                <div id="controlsContainer" class="absolute bottom-3 left-1/2 -translate-x-1/2 flex gap-2 sm:gap-3 bg-gray-800 bg-opacity-80 p-2 sm:p-3 rounded-full shadow-lg z-10">
-                    <button id="muteBtn" class="w-10 h-10 sm:w-11 sm:h-11 bg-blue-600 hover:bg-blue-700 rounded-full flex items-center justify-center text-lg sm:text-xl transition">🔇</button>
-                    <button id="videoBtn" class="w-10 h-10 sm:w-11 sm:h-11 bg-blue-600 hover:bg-blue-700 rounded-full flex items-center justify-center text-lg sm:text-xl transition">📹</button>
-                    <button id="switchCameraBtn" class="hidden w-10 h-10 sm:w-11 sm:h-11 bg-gray-600 hover:bg-gray-700 rounded-full flex items-center justify-center text-lg sm:text-xl transition">🔄</button>
-                    <button id="screenShareBtn" class="w-10 h-10 sm:w-11 sm:h-11 bg-gray-600 hover:bg-gray-700 rounded-full flex items-center justify-center text-lg sm:text-xl transition">💻</button>
-                    <button id="recordBtn" class="w-10 h-10 sm:w-11 sm:h-11 bg-gray-600 hover:bg-gray-700 rounded-full flex items-center justify-center text-lg sm:text-xl transition">⏺</button>
-                    <button id="hangupBtn" class="w-10 h-10 sm:w-11 sm:h-11 bg-red-600 hover:bg-red-700 rounded-full flex items-center justify-center text-lg sm:text-xl transition">📞</button>
+                <div id="controlsContainer" class="absolute bottom-3 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2 z-20">
+                    <div id="reactionContainer" class="flex gap-2 bg-gray-800 bg-opacity-80 p-2 rounded-full shadow-lg">
+                        <button id="react-thumbsup" class="w-9 h-9 sm:w-10 sm:h-10 hover:bg-gray-700 rounded-full flex items-center justify-center text-lg sm:text-xl transition">👍</button>
+                        <button id="react-heart" class="w-9 h-9 sm:w-10 sm:h-10 hover:bg-gray-700 rounded-full flex items-center justify-center text-lg sm:text-xl transition">❤️</button>
+                        <button id="react-laugh" class="w-9 h-9 sm:w-10 sm:h-10 hover:bg-gray-700 rounded-full flex items-center justify-center text-lg sm:text-xl transition">😂</button>
+                        <button id="react-clap" class="w-9 h-9 sm:w-10 sm:h-10 hover:bg-gray-700 rounded-full flex items-center justify-center text-lg sm:text-xl transition">👏</button>
+                    </div>
+                    <div class="flex gap-2 sm:gap-3 bg-gray-800 bg-opacity-80 p-2 sm:p-3 rounded-full shadow-lg">
+                        <button id="muteBtn" class="w-10 h-10 sm:w-11 sm:h-11 bg-blue-600 hover:bg-blue-700 rounded-full flex items-center justify-center text-lg sm:text-xl transition">🔇</button>
+                        <button id="videoBtn" class="w-10 h-10 sm:w-11 sm:h-11 bg-blue-600 hover:bg-blue-700 rounded-full flex items-center justify-center text-lg sm:text-xl transition">📹</button>
+                        <button id="switchCameraBtn" class="hidden w-10 h-10 sm:w-11 sm:h-11 bg-gray-600 hover:bg-gray-700 rounded-full flex items-center justify-center text-lg sm:text-xl transition">🔄</button>
+                        <button id="screenShareBtn" class="w-10 h-10 sm:w-11 sm:h-11 bg-gray-600 hover:bg-gray-700 rounded-full flex items-center justify-center text-lg sm:text-xl transition">💻</button>
+                        <button id="recordBtn" class="w-10 h-10 sm:w-11 sm:h-11 bg-gray-600 hover:bg-gray-700 rounded-full flex items-center justify-center text-lg sm:text-xl transition">⏺</button>
+                        <button id="hangupBtn" class="w-10 h-10 sm:w-11 sm:h-11 bg-red-600 hover:bg-red-700 rounded-full flex items-center justify-center text-lg sm:text-xl transition">📞</button>
+                    </div>
                 </div>
             </div>
         </div>
