@@ -369,6 +369,7 @@ function setupDataChannelEvents(channel) {
         chatInput.disabled = false;
         sendChatBtn.disabled = false;
         showTooltip('User connected!', 'success'); 
+        startCallTimer();
         
         sendPeerStatus('audio', currentStream.getAudioTracks()[0].enabled);
         sendPeerStatus('video', currentStream.getVideoTracks()[0].enabled);
@@ -588,6 +589,7 @@ function formatTime(totalSeconds) {
 
 async function hangUp() {
     // Unsubscribe from all listeners
+    stopCallTimer();
     if (unsubscribeRoom) unsubscribeRoom();
     if (unsubscribeOfferCandidates) unsubscribeOfferCandidates();
     if (unsubscribeAnswerCandidates) unsubscribeAnswerCandidates();
