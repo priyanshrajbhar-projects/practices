@@ -552,31 +552,55 @@ async function stopScreenShare() {
 }
 
 async function hangUp() {
+    // Unsubscribe from all listeners
     if (unsubscribeRoom) unsubscribeRoom();
     if (unsubscribeOfferCandidates) unsubscribeOfferCandidates();
     if (unsubscribeAnswerCandidates) unsubscribeAnswerCandidates();
 
+    // Close connections
+    if (dataChannel) {
+        dataChannel.close();
+    }
     if (peerConnection) {
+        peerConnection.onconnectionstatechange = null; // Listener hatao taaki loop na bane
         peerConnection.close();
     }
+    
+    // Stop media tracks
     if (currentStream) {
         currentStream.getTracks().forEach(track => track.stop());
     }
 
-    if (roomId) {
+    // Clean up Firestore
+    if (roomId && db) { 
         try {
             const roomRef = db.collection('rooms').doc(roomId);
-            const offerCandidates = await roomRef.collection('offerCandidates').get();
-            offerCandidates.forEach(async (doc) => await doc.ref.delete());
-            const answerCandidates = await roomRef.collection('answerCandidates').get();
-            answerCandidates.forEach(async (doc) => await doc.ref.delete());
-            await roomRef.delete();
+            
+            // Sirf room creator hi main room doc aur offer candidates ko delete karega
+            if (isRoomCreator) {
+                console.log('Creator cleaning up room...');
+                const offerCandidates = await roomRef.collection('offerCandidates').get();
+                offerCandidates.forEach(async (doc) => await doc.ref.delete());
+                
+                const answerCandidates = await roomRef.collection('answerCandidates').get();
+                answerCandidates.forEach(async (doc) => await doc.ref.delete());
+                
+                await roomRef.delete();
+            } else {
+                // Joiner sirf apne answer candidates ko clean up karega
+                console.log('Joiner cleaning up candidates...');
+                const answerCandidates = await roomRef.collection('answerCandidates').get();
+                answerCandidates.forEach(async (doc) => await doc.ref.delete());
+            }
         } catch (error) {
-            console.error("Error cleaning up firestore:", error);
+            // Errors ko ignore karo (ho sakta hai room pehle hi delete ho chuka ho)
+            console.warn("Harmless error cleaning up firestore:", error.message);
         }
     }
 
-    window.location.href = 'index.html';
+    // UI reset karo aur home page par jao
+    // pathname use karna deployed apps ke liye safe hai
+    window.location.href = window.location.pathname;
 }
 
 function showShareModal() {
