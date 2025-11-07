@@ -211,6 +211,22 @@ async function createRoom() {
     const answerCandidates = roomRef.collection('answerCandidates');
 
     peerConnection = new RTCPeerConnection(servers);
+    // NEW: Add connection state listener
+        peerConnection.onconnectionstatechange = (event) => {
+            console.log('Connection state changed:', peerConnection.connectionState);
+            
+            if (peerConnection.connectionState === 'disconnected' ||
+                peerConnection.connectionState === 'failed' ||
+                peerConnection.connectionState === 'closed') {
+                
+                showTooltip('User disconnected.', 'error');
+                
+                // Thoda delay dein taaki user message padh sake
+                setTimeout(() => {
+                    hangUp();
+                }, 2000);
+            }
+        };
 
     currentStream.getTracks().forEach(track => {
         peerConnection.addTrack(track, currentStream);
@@ -285,6 +301,22 @@ async function joinRoom(id) {
     }
 
     peerConnection = new RTCPeerConnection(servers);
+    // NEW: Add connection state listener
+        peerConnection.onconnectionstatechange = (event) => {
+            console.log('Connection state changed:', peerConnection.connectionState);
+            
+            if (peerConnection.connectionState === 'disconnected' ||
+                peerConnection.connectionState === 'failed' ||
+                peerConnection.connectionState === 'closed') {
+                
+                showTooltip('User disconnected.', 'error');
+                
+                // Thoda delay dein taaki user message padh sake
+                setTimeout(() => {
+                    hangUp();
+                }, 2000);
+            }
+        };
 
     currentStream.getTracks().forEach(track => {
         peerConnection.addTrack(track, currentStream);
