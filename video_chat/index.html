@@ -13,6 +13,10 @@
     <style>
         /* Mirror local video */
         video { transform: scaleX(-1); object-fit: cover; }
+        /* Network Status Colors */
+         .net-good { color: #22c55e; } /* green-500 */
+        .net-medium { color: #eab308; } /* yellow-500 */
+        .net-bad { color: #ef4444; } /* red-500 */
         /* Don't mirror remote video */
         #remoteVideo { 
             transform: scaleX(1);
@@ -88,6 +92,10 @@
             <div id="videoContainer" class="bg-gray-800 w-full h-full flex items-center justify-center overflow-hidden shadow-2xl relative">
 
                 <div id="callTimer" class="hidden absolute top-3 left-3 bg-gray-900 bg-opacity-70 text-white text-sm px-3 py-1 rounded-lg z-10">00:00:00</div>
+                <div id="networkStatus" class="hidden absolute top-3 left-24 bg-gray-900 bg-opacity-70 text-white text-sm px-3 py-1 rounded-lg z-10 flex items-center gap-1">
+                    <span id="networkIcon" class="net-good">●</span>
+                    <span id="networkSpeed">-- ms</span>
+                </div>
                 
                 <!-- Remote Video -->
                 <video id="remoteVideo" autoplay playsinline class="h-full w-full"></video>
