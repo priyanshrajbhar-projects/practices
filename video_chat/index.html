@@ -10,79 +10,99 @@
     <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-firestore.js"></script>
 
     <style>
+        /* NEW: Scroll Fix */
+        * {
+            box-sizing: border-box;
+        }
+        html, body {
+            overflow: hidden;
+            height: 100%;
+            width: 100%;
+            margin: 0;
+            padding: 0;
+        }
+        /* End Scroll Fix */
+
         /* Mirror local video */
         video { transform: scaleX(-1); object-fit: cover; }
 
         /* Network Status Colors */
-        .net-good { color: #22c55e; } /* green-500 */
-        .net-medium { color: #eab308; } /* yellow-500 */
-        .net-bad { color: #ef4444; } /* red-500 */
+        .net-good { color: #22c55e; }
+        .net-medium { color: #eab308; }
+        .net-bad { color: #ef4444; }
         
         /* Don't mirror remote video + Screen Share Fix */
         #remoteVideo { 
             transform: scaleX(1);
-            object-fit: contain; /* Ensures screen share fits */
+            object-fit: contain;
         }
 
         /* Tooltip Style (POPUP FIX) */
         #tooltip {
+            position: absolute;
+            bottom: 0; 
+            left: 50%;
+            transform: translateX(-50%) translateY(100px); /* Hidden state */
             transition: transform 0.3s ease-in-out, opacity 0.3s ease-in-out;
-            transform: translateY(100px); /* Hidden state */
             opacity: 0;
-            pointer-events: none; /* Taa ki click na ho */
-            z-index: 9999; /* Hamesha upar dikhega */
+            pointer-events: none;
+            z-index: 9999; /* Hamesha sabse upar */
+            
+            padding: 0.75rem 1.25rem;
+            border-radius: 0.5rem;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+            color: white;
+            font-size: 0.875rem;
+            white-space: nowrap;
         }
         .tooltip-visible {
-            transform: translateY(-20px); /* Visible state */
+            transform: translateX(-50%) translateY(-20px); /* Visible state */
             opacity: 1;
         }
 
-        /* --- NEW: Reaction Animation --- */
+        /* --- Reaction Animation --- */
         #animationContainer {
             position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            overflow: hidden;
-            pointer-events: none;
-            z-index: 50; /* Above video, below controls */
+            top: 0; left: 0; width: 100%; height: 100%;
+            overflow: hidden; pointer-events: none; z-index: 50;
         }
-
         .floating-emoji {
             position: absolute;
-            bottom: -50px; /* Start from below screen */
+            bottom: -50px;
             font-size: 2.5rem;
             animation: floatUp 4s ease-out;
         }
-
         @keyframes floatUp {
-            0% {
-                transform: translateY(0) scale(1);
-                opacity: 1;
-            }
-            100% {
-                transform: translateY(-80vh) scale(1.5); /* Float to top */
-                opacity: 0;
-            }
+            0% { transform: translateY(0) scale(1); opacity: 1; }
+            100% { transform: translateY(-80vh) scale(1.5); opacity: 0; }
         }
-        /* --- End Reaction Animation --- */
 
+        /* --- Speaking Indicator --- */
+        #localVideoContainer, #remoteVideo {
+            transition: border 0.2s ease-out, box-shadow 0.2s ease-out;
+        }
+        .speaking {
+            border: 3px solid #34d399 !important;
+            box-shadow: 0 0 15px #34d399;
+        }
+        #localVideoContainer.speaking {
+            border-color: #34d399 !important;
+        }
+
+        /* NEW: Scroll Fix for #roomScreen */
+        #roomScreen {
+            height: 100%; /* Use 100% instead of 100vh */
+            width: 100%;
+        }
+        
         /* Mobile Video Screen Fix */
         @media (max-width: 1023px) {
             #roomScreen {
                 flex-direction: column;
-                height: 100vh;
                 overflow: hidden;
             }
-            #videoContainer {
-                height: 60vh;
-                min-height: 60vh;
-            }
-            .chat-sidebar {
-                height: 40vh;
-                min-height: 40vh;
-            }
+            #videoContainer { height: 60vh; min-height: 60vh; }
+            .chat-sidebar { height: 40vh; min-height: 40vh; }
         }
     </style>
 </head>
@@ -122,6 +142,9 @@
 
     <div id="roomScreen" class="hidden w-full h-screen p-0 lg:p-4 flex flex-col lg:flex-row gap-0 lg:gap-4 overflow-hidden">
         
+        <div id="tooltip" class="absolute bottom-0 left-1/2 -translate-x-1/2 p-3 px-5 rounded-lg shadow-lg text-white text-sm">
+        </div>
+
         <div class="flex-1 flex flex-col"> 
             <div id="videoContainer" class="bg-gray-800 w-full h-full flex items-center justify-center overflow-hidden shadow-2xl relative">
                 
@@ -151,7 +174,7 @@
                     </div>
                 </div>
 
-                <div class="absolute top-3 right-3 w-24 h-20 sm:w-32 sm:h-24 lg:w-40 lg:h-32 bg-gray-700 rounded-lg overflow-hidden shadow-lg border-2 border-blue-500 z-20">
+                <div id="localVideoContainer" class="absolute top-3 right-3 w-24 h-20 sm:w-32 sm:h-24 lg:w-40 lg:h-32 bg-gray-700 rounded-lg overflow-hidden shadow-lg border-2 border-blue-500 z-20">
                     <video id="localVideo" autoplay playsinline muted class="h-full w-full"></video>
                 </div>
 
@@ -187,8 +210,10 @@
             <div id="chatMessages" class="flex-1 bg-gray-700 rounded-lg p-2 overflow-y-auto mb-2 space-y-2 text-sm">
             </div>
             <div class="flex gap-2">
-                <input id="chatInput" type="text" placeholder="Type a message..." class="flex-1 bg-gray-700 text-white py-2 px-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
-                <button id="sendChatBtn" class="bg-blue-600 hover:bg-blue-700 px-3 sm:px-4 py-2 rounded-lg text-sm">Send</button>
+                <input type="file" id="fileInput" class="hidden">
+                <button id="attachFileBtn" class="bg-gray-600 hover:bg-gray-700 px-3 sm:px-4 py-2 rounded-lg text-sm" disabled>📎</button>
+                <input id="chatInput" type="text" placeholder="Type a message..." class="flex-1 bg-gray-700 text-white py-2 px-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm" disabled>
+                <button id="sendChatBtn" class="bg-blue-600 hover:bg-blue-700 px-3 sm:px-4 py-2 rounded-lg text-sm" disabled>Send</button>
             </div>
         </div>
     </div>
@@ -202,9 +227,6 @@
             <div id="qrcode" class="flex justify-center p-4 bg-white rounded-lg mb-4"></div>
             <button id="closeModalBtn" class="bg-gray-600 hover:bg-gray-700 text-white py-2 px-4 rounded-lg">Close</button>
         </div>
-    </div>
-
-    <div id="tooltip" class="fixed bottom-0 left-1/2 -translate-x-1/2 p-3 px-5 rounded-lg shadow-lg text-white text-sm">
     </div>
 
     <script src="script.js"></script>
