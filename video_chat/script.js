@@ -1,4 +1,5 @@
 // FINAL CODE (with Recording, Quality, Popup Fix)
+// FIX: Renamed copyUrlBtn function to copyShareUrl to avoid declaration conflict
 
 // --- DOM Elements ---
 const welcomeScreen = document.getElementById('welcomeScreen');
@@ -138,7 +139,7 @@ function initHome() {
 
     shareBtn.onclick = showShareModal;
     closeModalBtn.onclick = () => shareModal.classList.add('hidden');
-    copyUrlBtn.onclick = copyShareUrl;
+    copyUrlBtn.onclick = copyShareUrl; // FIX: Was pointing to a non-existent function
 }
 
 function checkUrlForRoom() {
@@ -857,7 +858,9 @@ function showShareModal() {
     shareModal.classList.remove('hidden');
 }
 
-function copyUrlBtn() {
+// *** THIS IS THE FIX ***
+// Renamed function from copyUrlBtn to copyShareUrl
+function copyShareUrl() {
     shareUrl.select();
     navigator.clipboard.writeText(shareUrl.value);
     copyUrlBtn.innerText = 'Copied!';
