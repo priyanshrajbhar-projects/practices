@@ -2,335 +2,233 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Video Call App</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>P2P Video Call (Firebase)</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
-    <script src="https://cdn.rawgit.com/davidshimjs/qrcodejs/gh-pages/qrcode.min.js"></script>
-    
+    <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-firestore.js"></script>
+
     <style>
+        /* NEW: Scroll Fix */
         * {
-            margin: 0;
-            padding: 0;
             box-sizing: border-box;
         }
-        
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        html, body {
             overflow: hidden;
-            height: 100vh;
-            height: 100dvh; /* Dynamic viewport height for mobile */
-        }
-        
-        .hidden {
-            display: none !important;
-        }
-        
-        /* MOBILE FIX: Room Screen Layout */
-        #roomScreen {
-            display: flex;
-            flex-direction: column;
-            height: 100vh;
-            height: 100dvh;
-            width: 100%;
-            overflow: hidden;
-        }
-        
-        /* Video Container */
-        #videoContainer {
-            flex: 1;
-            position: relative;
-            overflow: hidden;
-            min-height: 0;
-        }
-        
-        video {
-            width: 100%;
             height: 100%;
-            object-fit: cover;
-            background: #1a1a1a;
-        }
-        
-        #localVideoContainer {
-            position: absolute;
-            bottom: 80px;
-            right: 10px;
-            width: 120px;
-            height: 160px;
-            border-radius: 12px;
-            overflow: hidden;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
-            transition: box-shadow 0.3s ease;
-            z-index: 10;
-        }
-        
-        #localVideo {
             width: 100%;
-            height: 100%;
-            object-fit: cover;
+            margin: 0;
+            padding: 0;
         }
-        
-        /* Speaking Indicator */
-        .speaking {
-            box-shadow: 0 0 0 4px #22c55e, 0 4px 15px rgba(0,0,0,0.5) !important;
-        }
-        
-        /* Floating Emoji Animation */
-        .floating-emoji {
-            position: absolute;
-            bottom: 20%;
-            font-size: 3rem;
-            animation: float 2s ease-out forwards;
-            pointer-events: none;
-            z-index: 1000;
-        }
-        
-        @keyframes float {
-            0% {
-                transform: translateY(0) scale(0.5);
-                opacity: 1;
-            }
-            100% {
-                transform: translateY(-300px) scale(1.5);
-                opacity: 0;
-            }
-        }
-        
-        /* MOBILE FIX: Chat Panel */
-        @media (max-width: 768px) {
-            #roomScreen > div {
-                flex-direction: column !important;
-            }
-            
-            /* Video takes most space on mobile */
-            #videoContainer {
-                flex: 1 1 60%;
-                min-height: 60vh;
-            }
-            
-            /* Chat panel fixed at bottom */
-            .chat-panel {
-                flex: 0 0 auto !important;
-                width: 100% !important;
-                max-width: 100% !important;
-                height: 40vh !important;
-                max-height: 40vh !important;
-                display: flex !important;
-                flex-direction: column !important;
-                background-color: #1f2937;
-                border-top: 2px solid #374151;
-            }
-            
-            /* Chat messages area */
-            #chatMessages {
-                flex: 1 1 auto !important;
-                overflow-y: auto !important;
-                min-height: 0 !important;
-                padding: 0.5rem !important;
-            }
-            
-            /* CRITICAL FIX: Message input container */
-            .message-input-container {
-                flex: 0 0 auto !important;
-                display: flex !important;
-                gap: 0.5rem !important;
-                padding: 0.5rem !important;
-                background-color: #1f2937 !important;
-                border-top: 1px solid #374151 !important;
-                position: relative !important;
-                bottom: 0 !important;
-                left: 0 !important;
-                right: 0 !important;
-                z-index: 100 !important;
-            }
-            
-            #chatInput {
-                flex: 1 1 auto !important;
-                min-width: 0 !important;
-            }
-            
-            #localVideoContainer {
-                bottom: 45vh;
-                right: 10px;
-                width: 100px;
-                height: 130px;
-            }
-        }
-        
-        /* Tooltip */
-        #tooltip {
-            position: fixed;
-            top: 20px;
-            left: 50%;
-            transform: translateX(-50%) translateY(-100px);
-            background-color: #22c55e;
-            color: white;
-            padding: 12px 24px;
-            border-radius: 8px;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
-            z-index: 10000;
-            opacity: 0;
-            transition: all 0.3s ease;
-            font-weight: 600;
-        }
-        
-        .tooltip-visible {
-            transform: translateX(-50%) translateY(0) !important;
-            opacity: 1 !important;
-        }
-        
-        /* Network Indicator */
+        /* End Scroll Fix */
+
+        /* Mirror local video */
+        video { transform: scaleX(-1); object-fit: cover; }
+
+        /* Network Status Colors */
         .net-good { color: #22c55e; }
         .net-medium { color: #eab308; }
         .net-bad { color: #ef4444; }
         
-        /* Buttons */
-        button {
-            transition: all 0.2s ease;
+        /* Don't mirror remote video + Screen Share Fix */
+        #remoteVideo { 
+            transform: scaleX(1);
+            object-fit: contain;
+        }
+
+        /* Tooltip Style (POPUP FIX) */
+        #tooltip {
+            position: absolute;
+            bottom: 0; 
+            left: 50%;
+            transform: translateX(-50%) translateY(100px); /* Hidden state */
+            transition: transform 0.3s ease-in-out, opacity 0.3s ease-in-out;
+            opacity: 0;
+            pointer-events: none;
+            z-index: 9999; /* Hamesha sabse upar */
+            
+            padding: 0.75rem 1.25rem;
+            border-radius: 0.5rem;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+            color: white;
+            font-size: 0.875rem;
+            white-space: nowrap;
+        }
+        .tooltip-visible {
+            transform: translateX(-50%) translateY(-20px); /* Visible state */
+            opacity: 1;
+        }
+
+        /* --- Reaction Animation --- */
+        #animationContainer {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            overflow: hidden; pointer-events: none; z-index: 50;
+        }
+        .floating-emoji {
+            position: absolute;
+            bottom: -50px;
+            font-size: 2.5rem;
+            animation: floatUp 4s ease-out;
+        }
+        @keyframes floatUp {
+            0% { transform: translateY(0) scale(1); opacity: 1; }
+            100% { transform: translateY(-80vh) scale(1.5); opacity: 0; }
+        }
+
+        /* --- Speaking Indicator --- */
+        #localVideoContainer, #remoteVideo {
+            transition: border 0.2s ease-out, box-shadow 0.2s ease-out;
+        }
+        .speaking {
+            border: 3px solid #34d399 !important;
+            box-shadow: 0 0 15px #34d399;
+        }
+        #localVideoContainer.speaking {
+            border-color: #34d399 !important;
+        }
+
+        /* NEW: Mobile/Scroll Fix for #roomScreen */
+        #roomScreen {
+            height: 100vh; /* 100% viewport height */
+            width: 100vw; /* 100% viewport width */
         }
         
-        button:active {
-            transform: scale(0.95);
-        }
-        
-        /* Scrollbar Styling */
-        ::-webkit-scrollbar {
-            width: 6px;
-        }
-        
-        ::-webkit-scrollbar-track {
-            background: #374151;
-        }
-        
-        ::-webkit-scrollbar-thumb {
-            background: #6b7280;
-            border-radius: 3px;
-        }
-        
-        ::-webkit-scrollbar-thumb:hover {
-            background: #9ca3af;
+        /* Mobile Video Screen Fix (Original Logic) */
+        @media (max-width: 1023px) {
+            #roomScreen {
+                flex-direction: column;
+                overflow: hidden;
+            }
+            #videoContainer { height: 60vh; min-height: 60vh; }
+            .chat-sidebar { height: 40vh; min-height: 40vh; }
         }
     </style>
 </head>
-<body>
-    <!-- Welcome Screen -->
-    <div id="welcomeScreen" class="flex items-center justify-center h-screen p-4">
-        <div class="bg-white rounded-2xl shadow-2xl p-8 max-w-md w-full">
-            <h1 class="text-3xl font-bold text-gray-800 mb-6 text-center">Welcome to Video Call</h1>
-            <p id="loadingConfig" class="text-center text-gray-600 mb-4">Loading configuration...</p>
-            <input id="nameInput" type="text" placeholder="Enter your name" class="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:border-purple-500 mb-4" maxlength="20">
-            <button id="continueBtn" disabled class="w-full bg-purple-600 hover:bg-purple-700 text-white font-semibold py-3 rounded-lg transition disabled:bg-gray-400 disabled:cursor-not-allowed">Continue</button>
+<body class="bg-gray-900 text-white min-h-screen flex items-center justify-center font-sans">
+
+    <div id="welcomeScreen" class="text-center p-8">
+        <h1 class="text-5xl font-bold mb-4 bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-purple-600">P2P Call</h1>
+        <p class="text-lg text-gray-300 mb-8">Enter your name to continue</p>
+        <div class="flex flex-col gap-4 max-w-sm mx-auto">
+            <input id="nameInput" type="text" placeholder="Your Name" class="bg-gray-700 text-white text-center py-3 px-4 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" maxlength="20">
+            <button id="continueBtn" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-lg shadow-lg transition duration-300">
+                Continue
+            </button>
         </div>
+        <p id="loadingConfig" class="text-gray-400 mt-4">Loading config...</p>
     </div>
 
-    <!-- Home Screen -->
-    <div id="homeScreen" class="hidden flex items-center justify-center h-screen p-4">
-        <div class="bg-white rounded-2xl shadow-2xl p-8 max-w-md w-full">
-            <h2 id="welcomeMessage" class="text-2xl font-bold text-gray-800 mb-6 text-center"></h2>
-            <button id="createRoomBtn" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 rounded-lg mb-4 transition">Create Room</button>
-            <div class="flex gap-2">
-                <input id="joinRoomInput" type="text" placeholder="Enter 6-digit PIN" class="flex-1 px-4 py-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:border-purple-500" maxlength="6">
-                <button id="joinRoomBtn" class="bg-green-600 hover:bg-green-700 text-white font-semibold px-6 py-3 rounded-lg transition">Join</button>
+    <div id="homeScreen" class="hidden text-center p-8">
+        <h1 class="text-5xl font-bold mb-4 bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-purple-600">P2P Call</h1>
+        <p id="welcomeMessage" class="text-lg text-gray-300 mb-8">Welcome, Guest!</p>
+        <div class="flex flex-col sm:flex-row gap-4 justify-center">
+            <button id="createRoomBtn" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-lg shadow-lg transition duration-300">
+                Create Room
+            </button>
+            <div class="flex">
+                <input id="joinRoomInput" 
+                       type="text" 
+                       placeholder="Enter 6-Digit PIN" 
+                       class="bg-gray-700 text-white py-3 px-4 rounded-l-lg focus:outline-none focus:ring-2 focus:ring-blue-500" 
+                       maxlength="6">
+                <button id="joinRoomBtn" class="bg-gray-600 hover:bg-gray-700 text-white font-bold py-3 px-6 rounded-r-lg transition duration-300">
+                    Join
+                </button>
             </div>
         </div>
     </div>
 
-    <!-- Room Screen -->
-    <div id="roomScreen" class="hidden">
-        <div class="flex flex-col md:flex-row h-full">
-            <!-- Video Container -->
-            <div id="videoContainer" class="flex-1 relative">
-                <video id="remoteVideo" autoplay playsinline></video>
-                <div id="remoteVideoPlaceholder" class="absolute inset-0 flex items-center justify-center bg-gray-900">
-                    <p class="text-white text-xl">Waiting for peer...</p>
-                </div>
+    <div id="roomScreen" class="hidden w-full h-screen p-0 lg:p-4 flex flex-col lg:flex-row gap-0 lg:gap-4 overflow-hidden">
+        
+        <div id="tooltip" class="absolute bottom-0 left-1/2 -translate-x-1/2 p-3 px-5 rounded-lg shadow-lg text-white text-sm">
+        </div>
+
+        <div class="flex-1 flex flex-col"> 
+            <div id="videoContainer" class="bg-gray-800 w-full h-full flex items-center justify-center overflow-hidden shadow-2xl relative">
                 
-                <!-- Animation Container for Reactions -->
-                <div id="animationContainer" class="absolute inset-0 pointer-events-none"></div>
-                
-                <!-- Local Video (PIP) -->
-                <div id="localVideoContainer">
-                    <video id="localVideo" autoplay muted playsinline></video>
-                </div>
-                
-                <!-- Peer Status Indicators -->
-                <div id="peerStatus" class="hidden absolute top-4 left-4 bg-black bg-opacity-70 text-white px-3 py-2 rounded-lg text-sm flex items-center gap-2">
-                    <span id="peerVideoStatus" class="hidden">📵 Video Off</span>
-                    <span id="peerAudioStatus" class="hidden">🔇 Audio Off</span>
-                </div>
-                
-                <!-- Call Info -->
-                <div id="callInfoContainer" class="hidden absolute top-4 right-4 bg-black bg-opacity-70 text-white px-3 py-2 rounded-lg text-sm">
-                    <div class="flex items-center gap-2">
+                <div id="callInfoContainer" class="hidden absolute top-3 left-3 z-20 flex flex-wrap gap-2">
+                    <div id="callTimer" class="bg-gray-900 bg-opacity-70 text-white text-sm px-3 py-1 rounded-lg">
+                        00:00:00
+                    </div>
+                    <div id="networkStatus" class="bg-gray-900 bg-opacity-70 text-white text-sm px-3 py-1 rounded-lg flex items-center gap-1">
                         <span id="networkIcon" class="net-good">●</span>
                         <span id="networkSpeed">-- ms</span>
-                        <span>|</span>
+                    </div>
+                    <div id="videoQuality" class="bg-gray-900 bg-opacity-70 text-white text-sm px-3 py-1 rounded-lg flex items-center gap-1">
+                        <span>📹</span>
                         <span id="qualityLabel">--p</span>
-                        <span>|</span>
-                        <span id="callTimer">00:00:00</span>
                     </div>
                 </div>
+
+                <div id="animationContainer"></div>
+
+                <video id="remoteVideo" autoplay playsinline class="h-full w-full"></video>
+                <p id="remoteVideoPlaceholder" class="absolute text-gray-400">Waiting for other user...</p>
                 
-                <!-- Room Code Display -->
-                <div id="roomCodeSection" class="absolute bottom-4 left-4 bg-black bg-opacity-70 text-white px-4 py-2 rounded-lg">
-                    <p class="text-xs mb-1">Room PIN:</p>
-                    <input id="roomCodeDisplay" type="text" readonly class="bg-transparent border-none text-white text-lg font-bold w-24 focus:outline-none">
-                    <button id="shareBtn" class="ml-2 bg-blue-600 hover:bg-blue-700 px-3 py-1 rounded text-sm">Share</button>
+                <div id="peerStatus" class="hidden absolute inset-0 flex items-center justify-center bg-gray-800 bg-opacity-60 z-10">
+                    <div class="text-center text-white">
+                        <p id="peerVideoStatus" class="hidden text-4xl mb-2">🚫📹</p>
+                        <p id="peerAudioStatus" class="hidden text-4xl">🚫🔇</p>
+                    </div>
                 </div>
-                
-                <!-- Controls -->
-                <div id="controlsContainer" class="absolute bottom-4 left-1/2 transform -translate-x-1/2 flex gap-2 bg-black bg-opacity-70 p-3 rounded-full">
-                    <button id="muteBtn" class="bg-blue-600 hover:bg-blue-700 w-12 h-12 rounded-full text-xl">🔇</button>
-                    <button id="videoBtn" class="bg-blue-600 hover:bg-blue-700 w-12 h-12 rounded-full text-xl">📹</button>
-                    <button id="switchCameraBtn" class="hidden bg-gray-600 hover:bg-gray-700 w-12 h-12 rounded-full text-xl">🔄</button>
-                    <button id="screenShareBtn" class="bg-gray-600 hover:bg-gray-700 w-12 h-12 rounded-full text-xl">📺</button>
-                    <button id="recordBtn" class="bg-gray-600 hover:bg-gray-700 w-12 h-12 rounded-full text-xl">⏺️</button>
-                    <button id="hangupBtn" class="bg-red-600 hover:bg-red-700 w-12 h-12 rounded-full text-xl">📞</button>
+
+                <div id="localVideoContainer" class="absolute top-3 right-3 w-24 h-20 sm:w-32 sm:h-24 lg:w-40 lg:h-32 bg-gray-700 rounded-lg overflow-hidden shadow-lg border-2 border-blue-500 z-20">
+                    <video id="localVideo" autoplay playsinline muted class="h-full w-full"></video>
                 </div>
-                
-                <!-- Reaction Buttons -->
-                <div class="absolute bottom-20 right-4 flex flex-col gap-2">
-                    <button id="react-thumbsup" class="bg-black bg-opacity-50 hover:bg-opacity-70 w-12 h-12 rounded-full text-2xl">👍</button>
-                    <button id="react-heart" class="bg-black bg-opacity-50 hover:bg-opacity-70 w-12 h-12 rounded-full text-2xl">❤️</button>
-                    <button id="react-laugh" class="bg-black bg-opacity-50 hover:bg-opacity-70 w-12 h-12 rounded-full text-2xl">😂</button>
-                    <button id="react-clap" class="bg-black bg-opacity-50 hover:bg-opacity-70 w-12 h-12 rounded-full text-2xl">👏</button>
-                </div>
-            </div>
-            
-            <!-- Chat Panel - MOBILE FIXED -->
-            <div class="chat-panel w-full md:w-1/3 bg-gray-800 p-4 flex flex-col">
-                <h3 class="text-white font-bold mb-3 text-lg">Chat</h3>
-                <div id="chatMessages" class="flex-1 bg-gray-700 rounded-lg p-2 overflow-y-auto mb-2 space-y-2 text-sm"></div>
-                
-                <!-- MOBILE FIX: Message Input Container -->
-                <div class="message-input-container">
-                    <input type="file" id="fileInput" class="hidden">
-                    <button id="attachFileBtn" class="bg-gray-600 hover:bg-gray-700 px-3 sm:px-4 py-2 rounded-lg text-sm" disabled>📎</button>
-                    <input id="chatInput" type="text" placeholder="Type a message..." class="flex-1 bg-gray-700 text-white py-2 px-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm" disabled>
-                    <button id="sendChatBtn" class="bg-blue-600 hover:bg-blue-700 px-3 sm:px-4 py-2 rounded-lg text-sm" disabled>Send</button>
+
+                <div id="controlsContainer" class="absolute bottom-3 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2 z-20">
+                    <div id="reactionContainer" class="flex gap-2 bg-gray-800 bg-opacity-80 p-2 rounded-full shadow-lg">
+                        <button id="react-thumbsup" class="w-9 h-9 sm:w-10 sm:h-10 hover:bg-gray-700 rounded-full flex items-center justify-center text-lg sm:text-xl transition">👍</button>
+                        <button id="react-heart" class="w-9 h-9 sm:w-10 sm:h-10 hover:bg-gray-700 rounded-full flex items-center justify-center text-lg sm:text-xl transition">❤️</button>
+                        <button id="react-laugh" class="w-9 h-9 sm:w-10 sm:h-10 hover:bg-gray-700 rounded-full flex items-center justify-center text-lg sm:text-xl transition">😂</button>
+                        <button id="react-clap" class="w-9 h-9 sm:w-10 sm:h-10 hover:bg-gray-700 rounded-full flex items-center justify-center text-lg sm:text-xl transition">👏</button>
+                    </div>
+                    <div class="flex gap-2 sm:gap-3 bg-gray-800 bg-opacity-80 p-2 sm:p-3 rounded-full shadow-lg">
+                        <button id="muteBtn" class="w-10 h-10 sm:w-11 sm:h-11 bg-blue-600 hover:bg-blue-700 rounded-full flex items-center justify-center text-lg sm:text-xl transition">🔇</button>
+                        <button id="videoBtn" class="w-10 h-10 sm:w-11 sm:h-11 bg-blue-600 hover:bg-blue-700 rounded-full flex items-center justify-center text-lg sm:text-xl transition">📹</button>
+                        <button id="switchCameraBtn" class="hidden w-10 h-10 sm:w-11 sm:h-11 bg-gray-600 hover:bg-gray-700 rounded-full flex items-center justify-center text-lg sm:text-xl transition">🔄</button>
+                        <button id="screenShareBtn" class="w-10 h-10 sm:w-11 sm:h-11 bg-gray-600 hover:bg-gray-700 rounded-full flex items-center justify-center text-lg sm:text-xl transition">💻</button>
+                        <button id="recordBtn" class="w-10 h-10 sm:w-11 sm:h-11 bg-gray-600 hover:bg-gray-700 rounded-full flex items-center justify-center text-lg sm:text-xl transition">⏺</button>
+                        <button id="hangupBtn" class="w-10 h-10 sm:w-11 sm:h-11 bg-red-600 hover:bg-red-700 rounded-full flex items-center justify-center text-lg sm:text-xl transition">📞</button>
+                    </div>
                 </div>
             </div>
         </div>
-    </div>
 
-    <!-- Share Modal -->
-    <div id="shareModal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-        <div class="bg-white rounded-2xl p-6 max-w-md w-full">
-            <h3 class="text-2xl font-bold mb-4">Share Room</h3>
-            <div id="qrcode" class="flex justify-center mb-4"></div>
-            <input id="shareUrl" type="text" readonly class="w-full px-4 py-2 border-2 border-gray-300 rounded-lg mb-4 text-sm">
+        <div class="chat-sidebar lg:w-80 w-full bg-gray-800 p-3 sm:p-4 lg:rounded-lg flex flex-col shadow-xl">
+            <div id="roomCodeSection" class="mb-3 sm:mb-4">
+                <h3 class="font-bold text-base sm:text-lg mb-2">Room PIN:</h3>
+                <div class="flex gap-2">
+                    <input id="roomCodeDisplay" type="text" readonly class="flex-1 bg-gray-700 text-white py-2 px-3 rounded-lg focus:outline-none text-sm">
+                    <button id="shareBtn" class="bg-blue-600 hover:bg-blue-700 px-3 sm:px-4 py-2 rounded-lg text-sm">Share</button>
+                </div>
+            </div>
+
+            <h3 class="font-bold text-base sm:text-lg mb-2">Chat</h3>
+            <div id="chatMessages" class="flex-1 bg-gray-700 rounded-lg p-2 overflow-y-auto mb-2 space-y-2 text-sm">
+            </div>
             <div class="flex gap-2">
-                <button id="copyUrlBtn" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-lg">Copy URL</button>
-                <button id="closeModalBtn" class="flex-1 bg-gray-600 hover:bg-gray-700 text-white py-2 rounded-lg">Close</button>
+                <input type="file" id="fileInput" class="hidden">
+                <button id="attachFileBtn" class="bg-gray-600 hover:bg-gray-700 px-3 sm:px-4 py-2 rounded-lg text-sm disabled:opacity-50" disabled title="Wait for user to connect">📎</button>
+                <input id="chatInput" type="text" placeholder="Type a message..." class="flex-1 bg-gray-700 text-white py-2 px-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm" disabled>
+                <button id="sendChatBtn" class="bg-blue-600 hover:bg-blue-700 px-3 sm:px-4 py-2 rounded-lg text-sm" disabled>Send</button>
             </div>
         </div>
     </div>
 
-    <!-- Tooltip -->
-    <div id="tooltip"></div>
+    <div id="shareModal" class="hidden fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4">
+        <div class="bg-gray-800 p-6 sm:p-8 rounded-lg shadow-2xl text-center w-full max-w-sm">
+            <h2 class="text-xl sm:text-2xl font-bold mb-4">Share Room</h2>
+            <p class="mb-2 text-gray-300 text-sm">Share this URL, code, or QR:</p>
+            <input id="shareUrl" type="text" readonly class="w-full bg-gray-700 text-white py-2 px-3 rounded-lg mb-4 focus:outline-none text-sm">
+            <button id="copyUrlBtn" class="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-lg mb-4">Copy URL</button>
+            <div id="qrcode" class="flex justify-center p-4 bg-white rounded-lg mb-4"></div>
+            <button id="closeModalBtn" class="bg-gray-600 hover:bg-gray-700 text-white py-2 px-4 rounded-lg">Close</button>
+        </div>
+    </div>
 
-    <script src="script-2.js"></script>
+    <script src="script.js"></script>
 </body>
 </html>
