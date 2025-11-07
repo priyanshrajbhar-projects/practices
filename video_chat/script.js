@@ -1,4 +1,4 @@
-// FINAL CODE @ 8:20 PM
+// FINAL CODE (with Recording, Quality, Popup Fix)
 
 // --- DOM Elements ---
 const welcomeScreen = document.getElementById('welcomeScreen');
@@ -23,6 +23,7 @@ const muteBtn = document.getElementById('muteBtn');
 const videoBtn = document.getElementById('videoBtn');
 const switchCameraBtn = document.getElementById('switchCameraBtn');
 const screenShareBtn = document.getElementById('screenShareBtn');
+const recordBtn = document.getElementById('recordBtn'); // NEW
 const hangupBtn = document.getElementById('hangupBtn');
 
 const roomCodeDisplay = document.getElementById('roomCodeDisplay');
@@ -43,6 +44,8 @@ const peerStatus = document.getElementById('peerStatus');
 const peerVideoStatus = document.getElementById('peerVideoStatus');
 const peerAudioStatus = document.getElementById('peerAudioStatus');
 
+const callInfoContainer = document.getElementById('callInfoContainer'); // NEW
+
 // --- Global Variables ---
 let currentStream;
 let remoteStream;
@@ -61,6 +64,11 @@ let remoteUserName = 'Peer';
 let networkStatsInterval;
 let tooltipTimer;
 let shortPin;
+
+// NEW: Recording Variables
+let mediaRecorder;
+let recordedChunks = [];
+let isRecording = false;
 
 // Listeners
 let unsubscribeRoom;
@@ -120,6 +128,7 @@ function initHome() {
     videoBtn.onclick = toggleVideo;
     switchCameraBtn.onclick = switchCamera;
     screenShareBtn.onclick = toggleScreenShare;
+    recordBtn.onclick = toggleRecording; // NEW
     hangupBtn.onclick = hangUp;
 
     sendChatBtn.onclick = sendChatMessage;
@@ -136,16 +145,13 @@ function checkUrlForRoom() {
     const urlParams = new URLSearchParams(window.location.search);
     const roomFromUrl = urlParams.get('room');
     if (roomFromUrl) {
-        // Agar URL mein poora Room ID hai, toh usey join karne ki koshish karo
-        // (PIN logic ko bypass karke)
-        // Note: PIN logic ke liye, hum ise simple rakhte hain aur user ko PIN enter karne dete hain
-        // joinRoomInput.value = roomFromUrl;
         console.log('Room ID in URL found, but PIN system is active. Please enter PIN.');
     }
 }
 
-// --- Tooltip Function ---
+// --- Tooltip Function (POPUP FIX) ---
 function showTooltip(message, type = 'success') {
+    console.log('Tooltip Check:', message); // DEBUG: Check if function is called
     const tooltip = document.getElementById('tooltip');
     if (!tooltip) return;
     
@@ -259,8 +265,6 @@ async function createRoom() {
             peerConnection.connectionState === 'failed' ||
             peerConnection.connectionState === 'closed') {
             
-            // showTooltip(`${remoteUserName} disconnected.`, 'error'); // Handled by data channel 'onclose'
-            
             setTimeout(() => {
                 hangUp();
             }, 2000);
@@ -320,7 +324,6 @@ async function joinRoom(pin) {
     let actualRoomId;
 
     try {
-        // Step 1: PIN se asli Room ID dhoondho
         const pinRef = db.collection('activePins').doc(pin);
         const pinDoc = await pinRef.get();
 
@@ -336,7 +339,6 @@ async function joinRoom(pin) {
         return;
     }
 
-    // Step 2: Asli Room ID milne ke baad puraana logic run karo
     roomId = actualRoomId;
     await startMedia();
     setupRoomUI();
@@ -366,8 +368,6 @@ async function joinRoom(pin) {
         if (peerConnection.connectionState === 'disconnected' ||
             peerConnection.connectionState === 'failed' ||
             peerConnection.connectionState === 'closed') {
-            
-            // showTooltip(`${remoteUserName} disconnected.`, 'error'); // Handled by data channel 'onclose'
             
             setTimeout(() => {
                 hangUp();
@@ -451,18 +451,14 @@ function setupDataChannelEvents(channel) {
             const data = JSON.parse(event.data);
             
             if (data.type === 'hello') {
-                // Peer ka naam store karo aur popup dikhao
                 remoteUserName = data.sender;
                 showTooltip(`${remoteUserName} connected!`, 'success');
             
             } else if (data.type === 'chat') {
-                // Chat message
                 displayChatMessage(data.text, data.sender);
             
             } else if (data.type === 'status') {
-                // Mute/Video status
                 handlePeerStatus(data.payload.media, data.payload.enabled);
-                // Remote popup dikhao
                 if (data.payload.media === 'audio') {
                     showTooltip(`${remoteUserName} ${data.payload.enabled ? 'is unmuted' : 'is muted'}`, 'success');
                 } else if (data.payload.media === 'video') {
@@ -470,7 +466,6 @@ function setupDataChannelEvents(channel) {
                 }
             
             } else if (data.type === 'event') {
-                // Doosre events
                 if (data.payload.type === 'camera_switch') {
                     showTooltip(`${remoteUserName} switched camera`, 'success');
                 } else if (data.payload.type === 'screen_share_on') {
@@ -574,10 +569,7 @@ function toggleAudio() {
     muteBtn.classList.toggle('bg-blue-600', enabled);
     muteBtn.classList.toggle('bg-gray-600', !enabled);
 
-    // Show local popup
     showTooltip(enabled ? 'Unmuted' : 'You are muted', 'success');
-
-    // Send status to peer
     sendEventMessage('status', { media: 'audio', enabled: enabled });
 }
 
@@ -590,10 +582,7 @@ function toggleVideo() {
     videoBtn.classList.toggle('bg-blue-600', enabled);
     videoBtn.classList.toggle('bg-gray-600', !enabled);
 
-    // Show local popup
     showTooltip(enabled ? 'Camera On' : 'Camera Off', 'success');
-
-    // Send status to peer
     sendEventMessage('status', { media: 'video', enabled: enabled });
 }
 
@@ -606,7 +595,6 @@ async function toggleScreenShare() {
             screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
             const screenTrack = screenStream.getVideoTracks()[0];
             
-            // Replace camera track with screen track
             if (peerConnection) {
                 const sender = peerConnection.getSenders().find(s => s.track.kind === 'video');
                 if (sender) {
@@ -614,7 +602,6 @@ async function toggleScreenShare() {
                 }
             }
 
-            // Update UI
             isScreenSharing = true;
             screenShareBtn.classList.add('bg-blue-600');
             screenShareBtn.classList.remove('bg-gray-600');
@@ -622,7 +609,6 @@ async function toggleScreenShare() {
             showTooltip('Started screen sharing', 'success');
             sendEventMessage('event', { type: 'screen_share_on' });
             
-            // Listen for when the user clicks "Stop Sharing" in the browser UI
             screenTrack.onended = () => {
                 stopScreenShare();
             };
@@ -631,7 +617,6 @@ async function toggleScreenShare() {
             console.error('Error starting screen share:', error);
         }
     } else {
-        // Stop screen sharing
         await stopScreenShare();
     }
 }
@@ -641,7 +626,6 @@ async function stopScreenShare() {
         screenStream.getTracks().forEach(track => track.stop());
     }
 
-    // Revert to camera
     if (currentStream && peerConnection) {
         const videoTrack = currentStream.getVideoTracks()[0];
         const sender = peerConnection.getSenders().find(s => s.track.kind === 'video');
@@ -653,7 +637,6 @@ async function stopScreenShare() {
     showTooltip('Stopped screen sharing', 'success');
     sendEventMessage('event', { type: 'screen_share_off' });
     
-    // Update UI
     isScreenSharing = false;
     screenShareBtn.classList.remove('bg-blue-600');
     screenShareBtn.classList.add('bg-gray-600');
@@ -662,8 +645,8 @@ async function stopScreenShare() {
 // --- Call Timer Functions ---
 
 function startCallTimer() {
+    callInfoContainer.classList.remove('hidden'); // Show poora container
     callStartTime = Date.now();
-    document.getElementById('callTimer').classList.remove('hidden');
 
     callTimerInterval = setInterval(() => {
         const secondsElapsed = Math.floor((Date.now() - callStartTime) / 1000);
@@ -672,11 +655,10 @@ function startCallTimer() {
 }
 
 function stopCallTimer() {
+    callInfoContainer.classList.add('hidden'); // Hide poora container
     if (callTimerInterval) {
         clearInterval(callTimerInterval);
     }
-    document.getElementById('callTimer').classList.add('hidden');
-    document.getElementById('callTimer').innerText = '00:00:00';
 }
 
 function formatTime(totalSeconds) {
@@ -690,37 +672,39 @@ function formatTime(totalSeconds) {
         .join(":");
 }
 
-// --- Network Monitoring Functions ---
+// --- Network & Quality Monitoring ---
 
 function startNetworkMonitoring() {
-    document.getElementById('networkStatus').classList.remove('hidden');
-
     networkStatsInterval = setInterval(async () => {
         if (!peerConnection) return;
 
         try {
             const stats = await peerConnection.getStats();
             let roundTripTime = 0;
+            let frameHeight = 0; // NEW: Quality check
 
             stats.forEach(report => {
                 if (report.type === 'remote-inbound-rtp' && report.roundTripTime) {
                     roundTripTime = report.roundTripTime * 1000;
                 }
+                // 'inbound-rtp' track par remote video ki quality milti hai
+                if (report.type === 'inbound-rtp' && report.kind === 'video' && report.frameHeight) {
+                    frameHeight = report.frameHeight;
+                }
             });
 
-            // UI Update
+            // Network UI Update
             const icon = document.getElementById('networkIcon');
             const speedText = document.getElementById('networkSpeed');
-
             speedText.innerText = `${roundTripTime.toFixed(0)} ms`;
+            if (roundTripTime < 150) icon.className = 'net-good';
+            else if (roundTripTime < 300) icon.className = 'net-medium';
+            else icon.className = 'net-bad';
 
-            if (roundTripTime < 150) {
-                icon.className = 'net-good'; // Green
-            } else if (roundTripTime < 300) {
-                icon.className = 'net-medium'; // Yellow
-            } else {
-                icon.className = 'net-bad'; // Red
-            }
+            // Quality UI Update
+            const qualityLabel = document.getElementById('qualityLabel');
+            if (frameHeight > 0) qualityLabel.innerText = `${frameHeight}p`;
+            else qualityLabel.innerText = '--p';
 
         } catch (error) {
             console.warn('Could not get network stats:', error);
@@ -732,13 +716,89 @@ function stopNetworkMonitoring() {
     if (networkStatsInterval) {
         clearInterval(networkStatsInterval);
     }
-    document.getElementById('networkStatus').classList.add('hidden');
+}
+
+// --- Recording Functions (NEW) ---
+
+function toggleRecording() {
+    if (isRecording) {
+        stopRecording();
+    } else {
+        startRecording();
+    }
+}
+
+function startRecording() {
+    if (!remoteStream) {
+        showTooltip('Wait for the other user to join', 'error');
+        return;
+    }
+
+    // Dono streams (local + remote) ko combine karo
+    recordedChunks = [];
+    const combinedStream = new MediaStream([
+        ...currentStream.getTracks(),
+        ...remoteStream.getTracks()
+    ]);
+
+    try {
+        mediaRecorder = new MediaRecorder(combinedStream, {
+            mimeType: 'video/webm; codecs=vp9,opus'
+        });
+
+        mediaRecorder.ondataavailable = (event) => {
+            if (event.data.size > 0) {
+                recordedChunks.push(event.data);
+            }
+        };
+
+        mediaRecorder.onstop = downloadRecording;
+
+        mediaRecorder.start();
+        isRecording = true;
+        recordBtn.classList.add('bg-red-600');
+        recordBtn.classList.remove('bg-gray-600');
+        showTooltip('Recording started', 'success');
+
+    } catch (error) {
+        console.error('Error starting recording:', error);
+        showTooltip('Could not start recording', 'error');
+    }
+}
+
+function stopRecording() {
+    if (mediaRecorder) {
+        mediaRecorder.stop();
+        isRecording = false;
+        recordBtn.classList.remove('bg-red-600');
+        recordBtn.classList.add('bg-gray-600');
+        showTooltip('Recording stopped', 'success');
+    }
+}
+
+function downloadRecording() {
+    const blob = new Blob(recordedChunks, {
+        type: 'video/webm'
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    document.body.appendChild(a);
+    a.style = 'display: none';
+    a.href = url;
+    a.download = `call-recording-${new Date().getTime()}.webm`;
+    a.click();
+    window.URL.revokeObjectURL(url);
+    document.body.removeChild(a);
+    recordedChunks = [];
 }
 
 
 // --- Hangup Function ---
 
 async function hangUp() {
+    if (isRecording) { // Recording stop karo
+        stopRecording();
+    }
     stopCallTimer();
     stopNetworkMonitoring();
 
@@ -756,6 +816,9 @@ async function hangUp() {
     if (currentStream) {
         currentStream.getTracks().forEach(track => track.stop());
     }
+    if (screenStream) {
+        screenStream.getTracks().forEach(track => track.stop());
+    }
 
     if (roomId && db) {
         try {
@@ -769,7 +832,6 @@ async function hangUp() {
                 const answerCandidates = await roomRef.collection('answerCandidates').get();
                 answerCandidates.forEach(async (doc) => await doc.ref.delete());
                 
-                // PIN ko bhi delete karo
                 if (shortPin) {
                     await db.collection('activePins').doc(shortPin).delete();
                 }
@@ -786,7 +848,6 @@ async function hangUp() {
         }
     }
 
-    // Home page par redirect karo
     window.location.href = window.location.pathname;
 }
 
@@ -796,7 +857,7 @@ function showShareModal() {
     shareModal.classList.remove('hidden');
 }
 
-function copyShareUrl() {
+function copyUrlBtn() {
     shareUrl.select();
     navigator.clipboard.writeText(shareUrl.value);
     copyUrlBtn.innerText = 'Copied!';
