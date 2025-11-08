@@ -1,17 +1,19 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>P2P Video Call (Firebase)</title>
+    
+    <title>ChitChat</title>
+    <link rel="icon" href="Gemini_Generated_Icon.jpg" type="image/jpeg">
+    <link rel="apple-touch-icon" href="Gemini_Generated_Icon.jpg">
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
     <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
     <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-firestore.js"></script>
 
     <style>
-        /* 08:28am */
+        /* 08:50am */
         /* NEW: Scroll Fix */
         * {
             box-sizing: border-box;
@@ -111,7 +113,7 @@
 <body class="bg-gray-900 text-white min-h-screen flex items-center justify-center font-sans">
 
     <div id="welcomeScreen" class="text-center p-8">
-        <h1 class="text-5xl font-bold mb-4 bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-purple-600">P2P Call</h1>
+        <h1 class="text-5xl font-bold mb-4 bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-purple-600">ChitChat</h1>
         <p class="text-lg text-gray-300 mb-8">Enter your name to continue</p>
         <div class="flex flex-col gap-4 max-w-sm mx-auto">
             <input id="nameInput" type="text" placeholder="Your Name" class="bg-gray-700 text-white text-center py-3 px-4 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" maxlength="20">
@@ -123,7 +125,7 @@
     </div>
 
     <div id="homeScreen" class="hidden text-center p-8">
-        <h1 class="text-5xl font-bold mb-4 bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-purple-600">P2P Call</h1>
+         <h1 class="text-5xl font-bold mb-4 bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-purple-600">ChitChat</h1>
         <p id="welcomeMessage" class="text-lg text-gray-300 mb-8">Welcome, Guest!</p>
         <div class="flex flex-col sm:flex-row gap-4 justify-center">
             <button id="createRoomBtn" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-lg shadow-lg transition duration-300">
