@@ -462,7 +462,8 @@ function setupDataChannelEvents(channel) {
                 showTooltip(`${remoteUserName} connected!`, 'success');
             
             } else if (data.type === 'chat') {
-                displayChatMessage(data.text, data.sender);
+                // CHAT FIX: data.text -> data.payload.text
+                displayChatMessage(data.payload.text, data.sender);
             
             } else if (data.type === 'status') {
                 handlePeerStatus(data.payload.media, data.payload.enabled);
@@ -529,6 +530,12 @@ function sendChatMessage() {
 }
 
 function displayChatMessage(message, sender) {
+    // FIX: Check agar message undefined hai (crash se bachne ke liye)
+    if (typeof message === 'undefined') {
+        console.error('displayChatMessage received undefined message');
+        return;
+    }
+
     const msgDiv = document.createElement('div');
     msgDiv.classList.add('p-2', 'rounded-lg', 'max-w-xs');
     
@@ -807,7 +814,7 @@ function showFloatingEmoji(emoji) {
 
 // --- Speaking Indicator Functions ---
 function setupAudioAnalysis() {
-    if (audioContext) audioContext.close();
+    if (audioContext && audioContext.state !== 'closed') audioContext.close();
     if (!currentStream || currentStream.getAudioTracks().length === 0) {
         console.warn('No audio track to analyze.');
         return;
@@ -883,6 +890,13 @@ function onFileSelected(e) {
         let offset = 0;
 
         function sendNextChunk() {
+            // FIX: Check if channel is open before sending
+            if (dataChannel.readyState !== 'open') {
+                console.warn('Data channel closed, aborting file send.');
+                fileInProgress = null;
+                return;
+            }
+
             if (offset >= buffer.byteLength) {
                 // Done
                 sendEventMessage('file', { type: 'end', name: file.name });
@@ -977,7 +991,8 @@ async function hangUp() {
     if (isRecording) stopRecording();
     stopCallTimer();
     stopNetworkMonitoring();
-    if (audioContext && audioContext.state !== 'closed') audioContext.close(); // FIX
+    // FIX: Only close if it exists and is not closed
+    if (audioContext && audioContext.state !== 'closed') audioContext.close(); 
     clearTimeout(speakingTimer);
 
     if (unsubscribeRoom) unsubscribeRoom();
