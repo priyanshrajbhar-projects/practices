@@ -1,4 +1,4 @@
-// FINAL CODE (CRASH FIX + All Features + ACKNOWLEDGMENT FILE TRANSFER)
+// FINAL CODE (CRASH FIX + All Features + PENDING CHUNK BUFFER FIX)
 
 // --- DOM Elements ---
 const welcomeScreen = document.getElementById('welcomeScreen');
@@ -149,7 +149,6 @@ function initHome() {
     closeModalBtn.onclick = () => shareModal.classList.add('hidden');
     copyUrlBtn.onclick = copyShareUrl;
 
-    // REACTION FIX: 'true' parameter hata diya
     document.getElementById('react-thumbsup').onclick = () => sendReaction('👍');
     document.getElementById('react-heart').onclick = () => sendReaction('❤️');
     document.getElementById('react-laugh').onclick = () => sendReaction('😂');
@@ -207,7 +206,7 @@ async function startMedia() {
         });
         localVideo.srcObject = currentStream;
         checkCameraDevices();
-        setupAudioAnalysis(); // Speaking indicator setup
+        setupAudioAnalysis(); 
     } catch (e) {
         console.error('Error accessing media devices.', e);
         alert('Could not access camera or mic.');
@@ -228,7 +227,7 @@ async function checkCameraDevices() {
 
 async function switchCamera() {
     facingMode = (facingMode === 'user') ? 'environment' : 'user';
-    await startMedia(); // Re-calls setupAudioAnalysis()
+    await startMedia(); 
 
     if (peerConnection) {
         const videoTrack = currentStream.getVideoTracks()[0];
@@ -278,7 +277,7 @@ async function createRoom() {
     });
 
     dataChannel = peerConnection.createDataChannel('chat');
-    dataChannel.binaryType = 'arraybuffer'; // For file sharing
+    dataChannel.binaryType = 'arraybuffer'; 
     setupDataChannelEvents(dataChannel);
 
     peerConnection.ontrack = (event) => {
@@ -383,7 +382,7 @@ async function joinRoom(pin) {
 
     peerConnection.ondatachannel = (event) => {
         dataChannel = event.channel;
-        dataChannel.binaryType = 'arraybuffer'; // For file sharing
+        dataChannel.binaryType = 'arraybuffer'; 
         setupDataChannelEvents(dataChannel);
     };
 
@@ -440,13 +439,12 @@ function setupDataChannelEvents(channel) {
     };
     
     channel.onmessage = (event) => {
-        // Binary messages (file chunks, file metadata)
+        // NEW: Separate binary (chunks) and JSON (meta)
         if (event.data instanceof ArrayBuffer) {
-            handleBinaryMessage(event.data); 
+            handleFileChunk(event.data); 
             return;
         }
 
-        // JSON messages (chat, events, ACK)
         try {
             const data = JSON.parse(event.data);
             
@@ -481,17 +479,9 @@ function setupDataChannelEvents(channel) {
             } else if (data.type === 'reaction') { 
                 showFloatingEmoji(data.payload.emoji);
             
-            } else if (data.type === 'file-ack') {
-                // NEW: Receiver is ready for chunks!
-                if (fileToSendBuffer && data.payload.name === fileToSendMeta.name) {
-                    console.log('Received file-ack. Starting chunk send...');
-                    // Start sending the file buffer we saved
-                    startFileSend(fileToSendBuffer, fileToSendMeta); 
-                    fileToSendBuffer = null; // Clear buffer
-                    fileToSendMeta = null;
-                } else {
-                    console.warn('Received file-ack for unknown file.');
-                }
+            } else if (data.type === 'file') {
+                // NEW: All file logic is now JSON-based
+                handleFileEvent(data.payload, data.sender);
             }
 
         } catch (error) {
@@ -500,7 +490,6 @@ function setupDataChannelEvents(channel) {
     };
 }
 
-// Send JSON messages
 function sendEventMessage(type, payload) {
     if (dataChannel && dataChannel.readyState === 'open') {
         const data = {
@@ -870,11 +859,8 @@ function checkMicVolume() {
 
 
 // ==========================================================
-// ===== START: ACKNOWLEDGMENT FILE SHARING
+// ===== START: SIMPLIFIED (JSON + BINARY) FILE SHARING
 // ==========================================================
-
-const FILE_META_MARKER = 1;
-const FILE_CHUNK_MARKER = 2;
 
 const CHUNK_SIZE = 16384; 
 const MAX_BUFFER_SIZE = 262144; 
@@ -885,27 +871,7 @@ let isSendingFile = false;
 let currentSendChunkListener = null; 
 let pendingChunks = []; // Receiver's buffer for early chunks
 
-// NEW: Globals to hold the file buffer until ACK is received
-let fileToSendBuffer = null;
-let fileToSendMeta = null;
-
-// Helper to send metadata
-function sendFileMetadata(payload) {
-    try {
-        const metaString = JSON.stringify(payload);
-        const metaBuffer = new TextEncoder().encode(metaString);
-        
-        const finalBuffer = new Uint8Array(1 + metaBuffer.byteLength);
-        finalBuffer[0] = FILE_META_MARKER; 
-        finalBuffer.set(metaBuffer, 1); 
-        
-        dataChannel.send(finalBuffer);
-    } catch (error) {
-        console.error('Error sending metadata:', error);
-    }
-}
-
-// --- File Selection (UPDATED for ACK) ---
+// --- File Selection (UPDATED) ---
 function onFileSelected(e) {
     const file = e.target.files[0];
     if (!file) return;
@@ -922,7 +888,7 @@ function onFileSelected(e) {
         return;
     }
     
-    if (fileInProgress) { // fileInProgress blocks new transfers
+    if (fileInProgress) { 
         showTooltip('Another file transfer is already in progress.', 'error');
         return;
     }
@@ -930,22 +896,22 @@ function onFileSelected(e) {
     // Set sender's side 'fileInProgress' to block others
     fileInProgress = { name: file.name, size: file.size, type: file.type };
     
-    // Save metadata for when ACK is received
-    fileToSendMeta = { name: file.name, size: file.size, type: file.type };
-    
     displayChatMessage(`file-progress-${file.name} Preparing ${file.name}...`, 'You');
     
     const fileReader = new FileReader();
     fileReader.onload = (event) => {
-        // Save the file buffer
-        fileToSendBuffer = event.target.result;
-        
-        // NOW, send the metadata to START the ACK process
-        console.log('File buffer ready. Sending metadata to receiver...');
-        sendFileMetadata({ 
+        // 1. Send metadata (JSON)
+        console.log('File buffer ready. Sending metadata...');
+        sendEventMessage('file', { 
             type: 'start', 
-            ...fileToSendMeta
+            name: file.name,
+            size: file.size,
+            type: file.type 
         });
+        
+        // 2. Start sending chunks (Binary)
+        console.log('Starting chunk send...');
+        startFileSend(event.target.result, file);
     };
     fileReader.onerror = (error) => {
         console.error('File read error:', error);
@@ -956,8 +922,8 @@ function onFileSelected(e) {
     fileInput.value = null;
 }
 
-// --- Optimized File Sending (UPDATED for ACK) ---
-// This function is now ONLY called *after* 'file-ack' is received
+// --- Optimized File Sending (UPDATED) ---
+// This function now sends RAW binary chunks
 function startFileSend(buffer, fileMeta) { 
     if (!dataChannel || dataChannel.readyState !== 'open') {
         showTooltip('Connection lost', 'error');
@@ -973,8 +939,8 @@ function startFileSend(buffer, fileMeta) {
     currentSendChunkListener = () => {
         if (offset >= buffer.byteLength) {
             console.log('File transfer complete');
-            // Send 'end' message
-            sendFileMetadata({ type: 'end', name: fileMeta.name });
+            // Send 'end' message (JSON)
+            sendEventMessage('file', { type: 'end', name: fileMeta.name });
             
             updateFileProgress(fileMeta.name, `Sent: ${fileMeta.name}`, 'You');
             fileInProgress = null; // Unblock sender
@@ -987,13 +953,9 @@ function startFileSend(buffer, fileMeta) {
         
         while (offset < buffer.byteLength && dataChannel.bufferedAmount < MAX_BUFFER_SIZE) {
             const chunk = buffer.slice(offset, offset + CHUNK_SIZE);
-            
-            const finalBuffer = new Uint8Array(1 + chunk.byteLength);
-            finalBuffer[0] = FILE_CHUNK_MARKER;
-            finalBuffer.set(new Uint8Array(chunk), 1);
 
             try {
-                dataChannel.send(finalBuffer); 
+                dataChannel.send(chunk); // Send RAW chunk
                 offset += chunk.byteLength;
                 
                 const percent = Math.floor((offset / buffer.byteLength) * 100);
@@ -1024,34 +986,16 @@ function startFileSend(buffer, fileMeta) {
 
 // --- File Receiving ---
 
-// Main binary message handler
-function handleBinaryMessage(data) {
-    const marker = new Uint8Array(data, 0, 1)[0];
-    const buffer = data.slice(1); // Get the rest of the data
-
-    if (marker === FILE_META_MARKER) {
-        // It's metadata (JSON)
-        try {
-            const metaString = new TextDecoder().decode(buffer);
-            const metaPayload = JSON.parse(metaString);
-            handleFileEvent(metaPayload, remoteUserName); // Process as event
-        } catch (error) {
-            console.error('Error parsing metadata:', error);
-        }
-    } else if (marker === FILE_CHUNK_MARKER) {
-        // It's a file chunk
-        handleFileChunk(buffer);
-    }
-}
-
 // (Handles only chunks)
 function handleFileChunk(chunk) {
+    // If metadata hasn't arrived, buffer the chunk
     if (!fileInProgress) {
         console.warn('Received chunk before metadata. Buffering...');
         pendingChunks.push(chunk);
         return;
     }
     
+    // Metadata is present, process chunk
     receiveBuffer.push(chunk);
     receivedFileSize += chunk.byteLength;
     
@@ -1063,7 +1007,7 @@ function handleFileChunk(chunk) {
     }
 }
 
-// (Handles only metadata logic, now sends ACK)
+// (Handles only metadata, via JSON)
 function handleFileEvent(payload, sender) { 
     if (payload.type === 'start') {
         if (fileInProgress) {
@@ -1082,11 +1026,7 @@ function handleFileEvent(payload, sender) {
         
         displayChatMessage(`file-progress-${payload.name} Receiving ${payload.name} (0%)`, 'System');
         console.log('File receiving started:', payload.name);
-        
-        // NEW: Send ACK back to sender
-        console.log('Receiver is ready. Sending file-ack.');
-        sendEventMessage('file-ack', { name: payload.name });
-        
+                
         // Process any chunks that arrived early
         if (pendingChunks.length > 0) {
             console.log(`Processing ${pendingChunks.length} buffered chunks...`);
@@ -1162,7 +1102,7 @@ function updateFileProgress(fileName, message, sender) {
 }
 
 // ========================================================
-// ===== END: ACKNOWLEDGMENT FILE SHARING
+// ===== END: SIMPLIFIED (JSON + BINARY) FILE SHARING
 // ========================================================
 
 
@@ -1192,8 +1132,6 @@ async function hangUp() {
     receiveBuffer = [];
     pendingChunks = [];
     isSendingFile = false;
-    fileToSendBuffer = null;
-    fileToSendMeta = null;
     
     if (peerConnection) {
         peerConnection.onconnectionstatechange = null;
@@ -1210,7 +1148,7 @@ async function hangUp() {
                 const offerCandidates = await roomRef.collection('offerCandidates').get();
                 offerCandidates.forEach(async (doc) => await doc.ref.delete());
                 const answerCandidates = await roomRef.collection('answerCandidates').get();
-                answerCandidates.forEach(async (doc) => await doc.f.delete());
+                answerCandidates.forEach(async (doc) => await doc.ref.delete()); // <-- TYPO FIX
                 if (shortPin) {
                     await db.collection('activePins').doc(shortPin).delete();
                 }
@@ -1218,7 +1156,7 @@ async function hangUp() {
             } else {
                 console.log('Joiner cleaning up candidates...');
                 const answerCandidates = await roomRef.collection('answerCandidates').get();
-                answerCandidates.forEach(async (doc) => await doc.ref.delete());
+                answerCandidates.forEach(async (doc) => await doc.ref.delete()); // <-- TYPO FIX
             }
         } catch (error) {
             console.warn("Harmless error cleaning up firestore:", error.message);
