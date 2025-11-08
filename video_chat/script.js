@@ -1,4 +1,4 @@
-// FINAL CODE (CRASH FIX + All Features + PENDING CHUNK BUFFER FIX)
+// FINAL CODE (CRASH FIX + All Features + MARKER-BYTE FILE TRANSFER)
 
 // --- DOM Elements ---
 const welcomeScreen = document.getElementById('welcomeScreen');
@@ -407,6 +407,11 @@ async function joinRoom(pin) {
 
 
 // --- Data Channel (Chat, Events, Files) Functions ---
+
+// NEW: Markers
+const M_JSON = 1; // For Chat, Events, Reactions, File Meta
+const M_CHUNK = 2; // For File Chunks
+
 function setupDataChannelEvents(channel) {
     channel.onopen = () => {
         console.log('Data channel open');
@@ -439,49 +444,42 @@ function setupDataChannelEvents(channel) {
     };
     
     channel.onmessage = (event) => {
-        // NEW: Separate binary (chunks) and JSON (meta)
-        if (event.data instanceof ArrayBuffer) {
-            handleFileChunk(event.data); 
+        // NEW: All messages are binary. We must check the marker.
+        if (!(event.data instanceof ArrayBuffer)) {
+            console.warn('Received non-ArrayBuffer message. Ignoring.');
             return;
         }
 
         try {
-            const data = JSON.parse(event.data);
-            
-            if (data.type === 'hello') {
-                remoteUserName = data.sender;
-                showTooltip(`${remoteUserName} connected!`, 'success');
-            
-            } else if (data.type === 'chat') {
-                displayChatMessage(data.payload.text, data.sender);
-            
-            } else if (data.type === 'status') {
-                handlePeerStatus(data.payload.media, data.payload.enabled);
-                if (data.payload.media === 'audio') {
-                    showTooltip(`${remoteUserName} ${data.payload.enabled ? 'is unmuted' : 'is muted'}`, 'success');
-                } else if (data.payload.media === 'video') {
-                    showTooltip(`${remoteUserName} ${data.payload.enabled ? 'turned camera on' : 'turned camera off'}`, 'success');
-                }
-            
-            } else if (data.type === 'event') {
-                if (data.payload.type === 'camera_switch') {
-                    showTooltip(`${remoteUserName} switched camera`, 'success');
-                } else if (data.payload.type === 'screen_share_on') {
-                    showTooltip(`${remoteUserName} started sharing screen`, 'success');
-                } else if (data.payload.type === 'screen_share_off') {
-                    showTooltip(`${remoteUserName} stopped sharing screen`, 'success');
-                } else if (data.payload.type === 'speaking') {
-                    remoteVideo.classList.add('speaking');
-                } else if (data.payload.type === 'stopped_speaking') {
-                    remoteVideo.classList.remove('speaking');
-                }
+            const data = event.data;
+            const marker = new Uint8Array(data, 0, 1)[0];
+            const buffer = data.slice(1); // Get the actual content
 
-            } else if (data.type === 'reaction') { 
-                showFloatingEmoji(data.payload.emoji);
-            
-            } else if (data.type === 'file') {
-                // NEW: All file logic is now JSON-based
-                handleFileEvent(data.payload, data.sender);
+            if (marker === M_JSON) {
+                // It's a JSON message (Chat, Event, File Meta)
+                const string = new TextDecoder().decode(buffer);
+                const json = JSON.parse(string);
+                
+                if (json.type === 'hello') {
+                    remoteUserName = json.sender;
+                    showTooltip(`${remoteUserName} connected!`, 'success');
+                } else if (json.type === 'chat') {
+                    displayChatMessage(json.payload.text, json.sender);
+                } else if (json.type === 'status') {
+                    handlePeerStatus(json.payload.media, json.payload.enabled);
+                } else if (json.type === 'event') {
+                    handleEvent(json.payload);
+                } else if (json.type === 'reaction') { 
+                    showFloatingEmoji(json.payload.emoji);
+                } else if (json.type === 'file') {
+                    handleFileEvent(json.payload, json.sender);
+                }
+                
+            } else if (marker === M_CHUNK) {
+                // It's a file chunk
+                handleFileChunk(buffer);
+            } else {
+                console.warn('Received message with unknown marker:', marker);
             }
 
         } catch (error) {
@@ -490,6 +488,22 @@ function setupDataChannelEvents(channel) {
     };
 }
 
+// NEW: Helper to process 'event' type messages
+function handleEvent(payload) {
+    if (payload.type === 'camera_switch') {
+        showTooltip(`${remoteUserName} switched camera`, 'success');
+    } else if (payload.type === 'screen_share_on') {
+        showTooltip(`${remoteUserName} started sharing screen`, 'success');
+    } else if (payload.type === 'screen_share_off') {
+        showTooltip(`${remoteUserName} stopped sharing screen`, 'success');
+    } else if (payload.type === 'speaking') {
+        remoteVideo.classList.add('speaking');
+    } else if (payload.type === 'stopped_speaking') {
+        remoteVideo.classList.remove('speaking');
+    }
+}
+
+// NEW: sendEventMessage now converts JSON to marked binary
 function sendEventMessage(type, payload) {
     if (dataChannel && dataChannel.readyState === 'open') {
         const data = {
@@ -497,7 +511,20 @@ function sendEventMessage(type, payload) {
             sender: userName,
             payload: payload
         };
-        dataChannel.send(JSON.stringify(data));
+        
+        try {
+            const string = JSON.stringify(data);
+            const buffer = new TextEncoder().encode(string);
+            
+            // Create final buffer: 1 byte for marker + N bytes for data
+            const finalBuffer = new Uint8Array(1 + buffer.length);
+            finalBuffer[0] = M_JSON; // Add marker
+            finalBuffer.set(buffer, 1); // Add data
+            
+            dataChannel.send(finalBuffer);
+        } catch (error) {
+            console.error('Error encoding event message:', error);
+        }
     }
 }
 
@@ -859,7 +886,7 @@ function checkMicVolume() {
 
 
 // ==========================================================
-// ===== START: SIMPLIFIED (JSON + BINARY) FILE SHARING
+// ===== START: MARKER-BASED FILE SHARING
 // ==========================================================
 
 const CHUNK_SIZE = 16384; 
@@ -900,7 +927,7 @@ function onFileSelected(e) {
     
     const fileReader = new FileReader();
     fileReader.onload = (event) => {
-        // 1. Send metadata (JSON)
+        // 1. Send metadata (JSON, via marked binary)
         console.log('File buffer ready. Sending metadata...');
         sendEventMessage('file', { 
             type: 'start', 
@@ -923,7 +950,7 @@ function onFileSelected(e) {
 }
 
 // --- Optimized File Sending (UPDATED) ---
-// This function now sends RAW binary chunks
+// This function now sends MARKED binary chunks
 function startFileSend(buffer, fileMeta) { 
     if (!dataChannel || dataChannel.readyState !== 'open') {
         showTooltip('Connection lost', 'error');
@@ -939,7 +966,7 @@ function startFileSend(buffer, fileMeta) {
     currentSendChunkListener = () => {
         if (offset >= buffer.byteLength) {
             console.log('File transfer complete');
-            // Send 'end' message (JSON)
+            // Send 'end' message (JSON, via marked binary)
             sendEventMessage('file', { type: 'end', name: fileMeta.name });
             
             updateFileProgress(fileMeta.name, `Sent: ${fileMeta.name}`, 'You');
@@ -955,7 +982,12 @@ function startFileSend(buffer, fileMeta) {
             const chunk = buffer.slice(offset, offset + CHUNK_SIZE);
 
             try {
-                dataChannel.send(chunk); // Send RAW chunk
+                // Create final buffer: 1 byte for marker + N bytes for chunk
+                const finalBuffer = new Uint8Array(1 + chunk.byteLength);
+                finalBuffer[0] = M_CHUNK; // Marker 2
+                finalBuffer.set(new Uint8Array(chunk), 1);
+            
+                dataChannel.send(finalBuffer); // Send MARKED chunk
                 offset += chunk.byteLength;
                 
                 const percent = Math.floor((offset / buffer.byteLength) * 100);
@@ -986,7 +1018,7 @@ function startFileSend(buffer, fileMeta) {
 
 // --- File Receiving ---
 
-// (Handles only chunks)
+// (Handles only chunks, receives raw chunk buffer)
 function handleFileChunk(chunk) {
     // If metadata hasn't arrived, buffer the chunk
     if (!fileInProgress) {
@@ -1007,7 +1039,7 @@ function handleFileChunk(chunk) {
     }
 }
 
-// (Handles only metadata, via JSON)
+// (Handles only metadata, via JSON payload)
 function handleFileEvent(payload, sender) { 
     if (payload.type === 'start') {
         if (fileInProgress) {
@@ -1102,7 +1134,7 @@ function updateFileProgress(fileName, message, sender) {
 }
 
 // ========================================================
-// ===== END: SIMPLIFIED (JSON + BINARY) FILE SHARING
+// ===== END: MARKER-BASED FILE SHARING
 // ========================================================
 
 
@@ -1148,7 +1180,7 @@ async function hangUp() {
                 const offerCandidates = await roomRef.collection('offerCandidates').get();
                 offerCandidates.forEach(async (doc) => await doc.ref.delete());
                 const answerCandidates = await roomRef.collection('answerCandidates').get();
-                answerCandidates.forEach(async (doc) => await doc.ref.delete()); // <-- TYPO FIX
+                answerCandidates.forEach(async (doc) => await doc.ref.delete()); 
                 if (shortPin) {
                     await db.collection('activePins').doc(shortPin).delete();
                 }
@@ -1156,7 +1188,7 @@ async function hangUp() {
             } else {
                 console.log('Joiner cleaning up candidates...');
                 const answerCandidates = await roomRef.collection('answerCandidates').get();
-                answerCandidates.forEach(async (doc) => await doc.ref.delete()); // <-- TYPO FIX
+                answerCandidates.forEach(async (doc) => await doc.ref.delete()); 
             }
         } catch (error) {
             console.warn("Harmless error cleaning up firestore:", error.message);
