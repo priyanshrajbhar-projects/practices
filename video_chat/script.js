@@ -1,4 +1,4 @@
-// FINAL CODE (CRASH FIX + All Features)
+// FINAL CODE (CRASH FIX + All Features + FILE TRANSFER FIX)
 
 // --- DOM Elements ---
 const welcomeScreen = document.getElementById('welcomeScreen');
@@ -864,11 +864,15 @@ function checkMicVolume() {
 
 
 // --- File Sharing Functions ---
+// 
+// ===== NEW: FILE TRANSFER LOGIC START =====
+// Puraana onFileSelected function isse replace kar do
+// 
 function onFileSelected(e) {
     const file = e.target.files[0];
     if (!file) return;
 
-    console.log("File selected:", file.name); // DEBUG
+    console.log("File selected:", file.name, "Size:", file.size);
 
     if (file.size > 100 * 1024 * 1024) { // 100MB Limit
         showTooltip('File is too large (max 100MB)', 'error');
@@ -885,47 +889,57 @@ function onFileSelected(e) {
     displayChatMessage(`file-progress-${file.name} Sending ${file.name} (0%)`, 'You');
     
     const fileReader = new FileReader();
+    let offset = 0;
+
+    // Buffer ko 5 chunk (320KB) par set karo
+    dataChannel.bufferedAmountLowThreshold = CHUNK_SIZE * 5;
+
     fileReader.onload = (event) => {
         const buffer = event.target.result;
-        let offset = 0;
+        console.log('File loaded into buffer, size:', buffer.byteLength);
 
-        function sendNextChunk() {
-            // FIX: Check if channel is open before sending
+        // Ye naya function hai jo loop mein chunk bhejega
+        function sendChunkLoop() {
+            // Check karo channel abhi bhi open hai ya nahi
             if (dataChannel.readyState !== 'open') {
                 console.warn('Data channel closed, aborting file send.');
                 fileInProgress = null;
+                dataChannel.onbufferedamountlow = null; // Event listener saaf karo
                 return;
             }
-
+            
+            // Jab tak buffer mein jagah hai aur file baaki hai, bhejte raho
+            while (offset < buffer.byteLength && dataChannel.bufferedAmount <= dataChannel.bufferedAmountLowThreshold) {
+                const chunk = buffer.slice(offset, offset + CHUNK_SIZE);
+                dataChannel.send(chunk);
+                offset += chunk.length;
+                
+                const percent = Math.floor((offset / buffer.byteLength) * 100);
+                updateFileProgress(file.name, `Sending ${file.name} (${percent}%)`, 'You');
+            }
+            
+            // Check karo ki file poori chali gayi
             if (offset >= buffer.byteLength) {
-                // Done
+                console.log('File sending finished.');
                 sendEventMessage('file', { type: 'end', name: file.name });
                 fileInProgress = null;
-                console.log('File sending finished.');
-                return;
+                dataChannel.onbufferedamountlow = null; // Event listener saaf karo
             }
-            
-            // Check buffer
-            if (dataChannel.bufferedAmount > CHUNK_SIZE * 10) { // Buffer limit
-                setTimeout(sendNextChunk, 100);
-                return;
-            }
-            
-            const chunk = buffer.slice(offset, offset + CHUNK_SIZE);
-            dataChannel.send(chunk);
-            offset += chunk.length;
-            
-            const percent = Math.floor((offset / buffer.byteLength) * 100);
-            updateFileProgress(file.name, `Sending ${file.name} (${percent}%)`, 'You');
-
-            // Send next chunk
-            setTimeout(sendNextChunk, 0); 
         }
-        sendNextChunk();
+        
+        // Event listener set karo. Jab buffer khaali hoga, ye function automatically chalega
+        dataChannel.onbufferedamountlow = sendChunkLoop;
+        
+        // Loop ko pehli baar manually start karo
+        sendChunkLoop();
     };
+    
     fileReader.readAsArrayBuffer(file);
-    fileInput.value = null;
+    fileInput.value = null; // Input ko reset karo
 }
+// 
+// ===== NEW: FILE TRANSFER LOGIC END =====
+// 
 
 function handleFileChunk(chunk) {
     if (!fileInProgress) return;
@@ -999,7 +1013,11 @@ async function hangUp() {
     if (unsubscribeOfferCandidates) unsubscribeOfferCandidates();
     if (unsubscribeAnswerCandidates) unsubscribeAnswerCandidates();
 
-    if (dataChannel) dataChannel.close();
+    if (dataChannel) {
+         // NEW: File transfer listener ko bhi saaf karo
+        dataChannel.onbufferedamountlow = null;
+        dataChannel.close();
+    }
     if (peerConnection) {
         peerConnection.onconnectionstatechange = null;
         peerConnection.close();
