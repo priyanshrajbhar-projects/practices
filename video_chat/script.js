@@ -1,4 +1,4 @@
-// FINAL CODE (Mobile Layout Fix + All Features)
+// FINAL CODE (CRASH FIX + All Features)
 
 // --- DOM Elements ---
 const welcomeScreen = document.getElementById('welcomeScreen');
@@ -438,7 +438,10 @@ function setupDataChannelEvents(channel) {
         
         showTooltip(`${remoteUserName} disconnected.`, 'error');
         stopNetworkMonitoring();
-        if (audioContext) audioContext.close();
+        // FIX: Check if context exists and is not already closed
+        if (audioContext && audioContext.state !== 'closed') {
+            audioContext.close();
+        }
         
         peerStatus.classList.add('hidden');
         peerVideoStatus.classList.add('hidden');
@@ -974,7 +977,7 @@ async function hangUp() {
     if (isRecording) stopRecording();
     stopCallTimer();
     stopNetworkMonitoring();
-    if (audioContext) audioContext.close();
+    if (audioContext && audioContext.state !== 'closed') audioContext.close(); // FIX
     clearTimeout(speakingTimer);
 
     if (unsubscribeRoom) unsubscribeRoom();
@@ -995,9 +998,11 @@ async function hangUp() {
             if (isRoomCreator) {
                 console.log('Creator cleaning up room...');
                 const offerCandidates = await roomRef.collection('offerCandidates').get();
-                offerCandidates.forEach(async (doc) => await doc.post.delete());
+                // FIX: doc.ref.delete()
+                offerCandidates.forEach(async (doc) => await doc.ref.delete());
                 const answerCandidates = await roomRef.collection('answerCandidates').get();
-                answerCandidates.forEach(async (doc) => await doc.post.delete());
+                // FIX: doc.ref.delete()
+                answerCandidates.forEach(async (doc) => await doc.ref.delete());
                 if (shortPin) {
                     await db.collection('activePins').doc(shortPin).delete();
                 }
@@ -1005,7 +1010,8 @@ async function hangUp() {
             } else {
                 console.log('Joiner cleaning up candidates...');
                 const answerCandidates = await roomRef.collection('answerCandidates').get();
-                answerCandidates.forEach(async (doc) => await doc.post.delete());
+                // FIX: doc.ref.delete()
+                answerCandidates.forEach(async (doc) => await doc.ref.delete());
             }
         } catch (error) {
             console.warn("Harmless error cleaning up firestore:", error.message);
