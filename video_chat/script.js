@@ -1,4 +1,4 @@
-// FINAL CODE (CRASH FIX + All Features + OPTIMIZED FILE TRANSFER)
+// FINAL CODE (CRASH FIX + All Features + OPTIMIZED FILE TRANSFER + RACE CONDITION FIX)
 
 // --- DOM Elements ---
 const welcomeScreen = document.getElementById('welcomeScreen');
@@ -872,7 +872,7 @@ function checkMicVolume() {
 
 
 // ==========================================================
-// ===== START: OPTIMIZED FILE SHARING (USER'S NEW CODE) =====
+// ===== START: OPTIMIZED FILE SHARING 
 // ==========================================================
 
 // File Sharing Configuration
@@ -883,7 +883,8 @@ let receivedFileSize = 0;
 let fileInProgress = null;
 let fileSendQueue = [];
 let isSendingFile = false;
-let currentSendChunkListener = null; // FIX for hangup cleanup
+let currentSendChunkListener = null; 
+let pendingChunks = []; // <-- NEW: Buffer for early chunks
 
 // --- File Selection ---
 function onFileSelected(e) {
@@ -950,7 +951,6 @@ function startFileSend(buffer, file) {
     let chunksSent = 0;
     
     // Event-driven sending
-    // FIX: Store listener in global var for cleanup
     currentSendChunkListener = () => {
         // Check if we're done
         if (offset >= buffer.byteLength) {
@@ -961,8 +961,8 @@ function startFileSend(buffer, file) {
             isSendingFile = false;
             
             // Remove event listener
-            dataChannel.removeEventListener('bufferedamountlow', currentSendChunkListener);
-            currentSendChunkListener = null; // FIX
+            if (dataChannel) dataChannel.removeEventListener('bufferedamountlow', currentSendChunkListener);
+            currentSendChunkListener = null; 
             return;
         }
         
@@ -987,14 +987,11 @@ function startFileSend(buffer, file) {
                 showTooltip('File send failed', 'error');
                 fileInProgress = null;
                 isSendingFile = false;
-                dataChannel.removeEventListener('bufferedamountlow', currentSendChunkListener);
-                currentSendChunkListener = null; // FIX
+                if (dataChannel) dataChannel.removeEventListener('bufferedamountlow', currentSendChunkListener);
+                currentSendChunkListener = null; 
                 return;
             }
         }
-        
-        // If buffer is full, wait for bufferedamountlow event
-        // Event listener will call sendChunk again
     };
     
     // Attach bufferedamountlow event listener
@@ -1009,17 +1006,20 @@ function startFileSend(buffer, file) {
 
 // --- File Receiving ---
 function handleFileChunk(chunk) {
+    // FIX: If metadata hasn't arrived, buffer the chunk
     if (!fileInProgress) {
-        console.warn('Received chunk but no file in progress');
+        console.warn('Received chunk before metadata. Buffering...');
+        pendingChunks.push(chunk);
         return;
     }
     
+    // --- This logic now runs ONLY if fileInProgress is set ---
     receiveBuffer.push(chunk);
     receivedFileSize += chunk.byteLength;
     
     // Throttled progress updates (every 5%)
-    const percent = Math.floor((receivedFileSize / fileInProgress.size) * 100);
-    const lastPercent = Math.floor(((receivedFileSize - chunk.byteLength) / fileInProgress.size) * 100);
+    const percent = fileInProgress.size > 0 ? Math.floor((receivedFileSize / fileInProgress.size) * 100) : 0;
+    const lastPercent = fileInProgress.size > 0 ? Math.floor(((receivedFileSize - chunk.byteLength) / fileInProgress.size) * 100) : 0;
     
     if (percent >= lastPercent + 5 || percent === 100 || percent === 0) {
         updateFileProgress(fileInProgress.name, `Receiving ${fileInProgress.name} (${percent}%)`, 'System');
@@ -1040,9 +1040,21 @@ function handleFileEvent(payload, sender) {
         };
         receiveBuffer = [];
         receivedFileSize = 0;
+        // Don't clear pendingChunks here yet
         
         displayChatMessage(`file-progress-${payload.name} Receiving ${payload.name} (0%)`, 'System');
         console.log('File receiving started:', payload.name);
+        
+        // --- FIX: Process any chunks that arrived early ---
+        if (pendingChunks.length > 0) {
+            console.log(`Processing ${pendingChunks.length} buffered chunks...`);
+            for (const chunk of pendingChunks) {
+                // Now that fileInProgress is set, handleFileChunk will work
+                handleFileChunk(chunk); 
+            }
+            pendingChunks = []; // Clear the pending buffer
+        }
+        // --- End Fix ---
         
     } else if (payload.type === 'end') {
         if (!fileInProgress || fileInProgress.name !== payload.name) {
@@ -1061,9 +1073,11 @@ function handleFileEvent(payload, sender) {
         }
         
         console.log('File receiving finished:', payload.name);
+        // Clean up
         fileInProgress = null;
         receiveBuffer = [];
         receivedFileSize = 0;
+        pendingChunks = []; // Clear pending chunks
     }
 }
 
@@ -1080,7 +1094,7 @@ function downloadReceivedFile() {
         a.href = url;
         a.download = fileInProgress.name;
         document.body.appendChild(a);
-        a.style.display = 'none';
+a.style.display = 'none';
         a.click();
         
         // Cleanup
@@ -1112,7 +1126,7 @@ function updateFileProgress(fileName, message, sender) {
 }
 
 // ========================================================
-// ===== END: OPTIMIZED FILE SHARING (USER'S NEW CODE) =====
+// ===== END: OPTIMIZED FILE SHARING
 // ========================================================
 
 
@@ -1138,6 +1152,12 @@ async function hangUp() {
         }
         dataChannel.close();
     }
+    
+    // Reset file transfer state
+    fileInProgress = null;
+    receiveBuffer = [];
+    pendingChunks = [];
+    isSendingFile = false;
     
     if (peerConnection) {
         peerConnection.onconnectionstatechange = null;
