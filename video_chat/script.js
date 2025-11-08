@@ -1,25 +1,22 @@
-// FINAL CODE (MARKER-BYTE FILE TRANSFER + ACKNOWLEDGMENT FIX)
+// FINAL CODE (MARKER-BYTE FILE TRANSFER + ACKNOWLEDGMENT FIX + DOWNLOAD FIX)
 
 // --- DOM Elements ---
 const welcomeScreen = document.getElementById('welcomeScreen');
 const nameInput = document.getElementById('nameInput');
 const continueBtn = document.getElementById('continueBtn');
 const loadingConfig = document.getElementById('loadingConfig');
-
 const homeScreen = document.getElementById('homeScreen');
 const welcomeMessage = document.getElementById('welcomeMessage');
 const createRoomBtn = document.getElementById('createRoomBtn');
 const joinRoomInput = document.getElementById('joinRoomInput');
 const joinRoomBtn = document.getElementById('joinRoomBtn');
-
 const roomScreen = document.getElementById('roomScreen');
 const videoContainer = document.getElementById('videoContainer');
 const localVideo = document.getElementById('localVideo');
 const remoteVideo = document.getElementById('remoteVideo');
 const remoteVideoPlaceholder = document.getElementById('remoteVideoPlaceholder');
-const animationContainer = document.getElementById('animationContainer'); 
+const animationContainer = document.getElementById('animationContainer');
 const localVideoContainer = document.getElementById('localVideoContainer');
-
 const controlsContainer = document.getElementById('controlsContainer');
 const muteBtn = document.getElementById('muteBtn');
 const videoBtn = document.getElementById('videoBtn');
@@ -27,60 +24,32 @@ const switchCameraBtn = document.getElementById('switchCameraBtn');
 const screenShareBtn = document.getElementById('screenShareBtn');
 const recordBtn = document.getElementById('recordBtn');
 const hangupBtn = document.getElementById('hangupBtn');
-
 const roomCodeDisplay = document.getElementById('roomCodeDisplay');
 const shareBtn = document.getElementById('shareBtn');
-
 const chatMessages = document.getElementById('chatMessages');
 const chatInput = document.getElementById('chatInput');
 const sendChatBtn = document.getElementById('sendChatBtn');
 const fileInput = document.getElementById('fileInput');
 const attachFileBtn = document.getElementById('attachFileBtn');
-
 const shareModal = document.getElementById('shareModal');
 const shareUrl = document.getElementById('shareUrl');
 const copyUrlBtn = document.getElementById('copyUrlBtn');
 const closeModalBtn = document.getElementById('closeModalBtn');
 const qrcodeDiv = document.getElementById('qrcode');
-
 const tooltip = document.getElementById('tooltip');
 const peerStatus = document.getElementById('peerStatus');
 const peerVideoStatus = document.getElementById('peerVideoStatus');
 const peerAudioStatus = document.getElementById('peerAudioStatus');
-
 const callInfoContainer = document.getElementById('callInfoContainer');
 
 // --- Global Variables ---
-let currentStream;
-let remoteStream;
-let peerConnection;
-let dataChannel;
-let roomId;
-let userName = 'Guest';
-let facingMode = 'user';
-let db;
-let isRoomCreator = false;
-let isScreenSharing = false;
-let screenStream;
-let callTimerInterval;
-let callStartTime;
-let remoteUserName = 'Peer';
-let networkStatsInterval;
-let tooltipTimer;
-let shortPin;
-
-// Recording Variables
-let mediaRecorder;
-let recordedChunks = [];
-let isRecording = false;
-
-// Speaking Indicator
+let currentStream, remoteStream, peerConnection, dataChannel, roomId;
+let userName = 'Guest', facingMode = 'user', db, isRoomCreator = false;
+let isScreenSharing = false, screenStream, callTimerInterval, callStartTime;
+let remoteUserName = 'Peer', networkStatsInterval, tooltipTimer, shortPin;
+let mediaRecorder, recordedChunks = [], isRecording = false;
 let audioContext, analyser, source, dataArray, speakingTimer;
-
-// Listeners
-let unsubscribeRoom;
-let unsubscribeOfferCandidates;
-let unsubscribeAnswerCandidates;
+let unsubscribeRoom, unsubscribeOfferCandidates, unsubscribeAnswerCandidates;
 
 // Google ke free STUN servers
 const servers = {
@@ -96,18 +65,13 @@ document.addEventListener('DOMContentLoaded', fetchConfigAndInitialize);
 async function fetchConfigAndInitialize() {
     try {
         const response = await fetch('/api/config');
-        if (!response.ok) {
-            throw new Error('Failed to fetch config. Make sure Vercel env vars are set.');
-        }
+        if (!response.ok) throw new Error('Failed to fetch config. Make sure Vercel env vars are set.');
         const firebaseConfig = await response.json();
-        
         firebase.initializeApp(firebaseConfig);
         db = firebase.firestore();
-
         loadingConfig.innerText = 'Config loaded. Please enter your name.';
         continueBtn.disabled = false;
         continueBtn.onclick = setupWelcomeScreen;
-
     } catch (error) {
         console.error(error);
         loadingConfig.innerText = error.message;
@@ -118,10 +82,8 @@ async function fetchConfigAndInitialize() {
 function setupWelcomeScreen() {
     userName = nameInput.value.trim() || 'Guest';
     welcomeMessage.innerText = `Welcome, ${userName}!`;
-    
     welcomeScreen.classList.add('hidden');
     homeScreen.classList.remove('hidden');
-
     initHome();
     checkUrlForRoom();
 }
@@ -129,26 +91,19 @@ function setupWelcomeScreen() {
 function initHome() {
     createRoomBtn.onclick = createRoom;
     joinRoomBtn.onclick = () => joinRoom(joinRoomInput.value);
-    
     muteBtn.onclick = toggleAudio;
     videoBtn.onclick = toggleVideo;
     switchCameraBtn.onclick = switchCamera;
     screenShareBtn.onclick = toggleScreenShare;
     recordBtn.onclick = toggleRecording;
     hangupBtn.onclick = hangUp;
-
     sendChatBtn.onclick = sendChatMessage;
-    chatInput.onkeydown = (e) => {
-        if (e.key === 'Enter') sendChatMessage();
-    };
-
+    chatInput.onkeydown = (e) => { if (e.key === 'Enter') sendChatMessage(); };
     attachFileBtn.onclick = () => fileInput.click();
     fileInput.onchange = onFileSelected;
-
     shareBtn.onclick = showShareModal;
     closeModalBtn.onclick = () => shareModal.classList.add('hidden');
     copyUrlBtn.onclick = copyShareUrl;
-
     document.getElementById('react-thumbsup').onclick = () => sendReaction('👍');
     document.getElementById('react-heart').onclick = () => sendReaction('❤️');
     document.getElementById('react-laugh').onclick = () => sendReaction('😂');
@@ -158,52 +113,30 @@ function initHome() {
 function checkUrlForRoom() {
     const urlParams = new URLSearchParams(window.location.search);
     const roomFromUrl = urlParams.get('room');
-    if (roomFromUrl) {
-        console.log('Room ID in URL found, but PIN system is active. Please enter PIN.');
-    }
+    if (roomFromUrl) console.log('Room ID in URL found, but PIN system is active. Please enter PIN.');
 }
 
-// --- Tooltip Function ---
 function showTooltip(message, type = 'success') {
-    const tooltip = document.getElementById('tooltip'); 
+    const tooltip = document.getElementById('tooltip');
     if (!tooltip) {
         console.error("Tooltip element not found!");
         return;
     }
-    
     tooltip.innerText = message;
-    
     if (tooltipTimer) clearTimeout(tooltipTimer);
-
-    if (type === 'error') {
-        tooltip.style.backgroundColor = '#ef4444';
-    } else {
-        tooltip.style.backgroundColor = '#22c55e';
-    }
-
+    tooltip.style.backgroundColor = type === 'error' ? '#ef4444' : '#22c55e';
     tooltip.classList.add('tooltip-visible');
-
-    tooltipTimer = setTimeout(() => {
-        tooltip.classList.remove('tooltip-visible');
-    }, 3000);
+    tooltipTimer = setTimeout(() => tooltip.classList.remove('tooltip-visible'), 3000);
 }
 
-// --- Helper Function ---
 function generatePin() {
     return Math.floor(100000 + Math.random() * 900000).toString();
 }
 
-// --- Core Functions ---
 async function startMedia() {
-    if (currentStream) { 
-        currentStream.getTracks().forEach(track => track.stop());
-    }
-
+    if (currentStream) currentStream.getTracks().forEach(track => track.stop());
     try {
-        currentStream = await navigator.mediaDevices.getUserMedia({
-            video: { facingMode: facingMode },
-            audio: true 
-        });
+        currentStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode }, audio: true });
         localVideo.srcObject = currentStream;
         checkCameraDevices();
         setupAudioAnalysis();
@@ -217,9 +150,7 @@ async function checkCameraDevices() {
     try {
         const devices = await navigator.mediaDevices.enumerateDevices();
         const videoDevices = devices.filter(device => device.kind === 'videoinput');
-        if (videoDevices.length > 1) {
-            switchCameraBtn.classList.remove('hidden');
-        }
+        if (videoDevices.length > 1) switchCameraBtn.classList.remove('hidden');
     } catch (e) {
         console.error('Error enumerating devices:', e);
     }
@@ -228,34 +159,24 @@ async function checkCameraDevices() {
 async function switchCamera() {
     facingMode = (facingMode === 'user') ? 'environment' : 'user';
     await startMedia();
-
     if (peerConnection) {
         const videoTrack = currentStream.getVideoTracks()[0];
         const sender = peerConnection.getSenders().find(s => s.track.kind === 'video');
-        if (sender) {
-            await sender.replaceTrack(videoTrack);
-            showTooltip('Camera switched', 'success');
-            sendEventMessage('event', { type: 'camera_switch' });
-        }
+        if (sender) await sender.replaceTrack(videoTrack);
     }
+    showTooltip('Camera switched', 'success');
+    sendEventMessage('event', { type: 'camera_switch' });
 }
 
 async function createRoom() {
-    await startMedia(); 
+    await startMedia();
     setupRoomUI();
-    isRoomCreator = true; 
-    
+    isRoomCreator = true;
     shortPin = generatePin();
     const pinRef = db.collection('activePins').doc(shortPin);
-
     const roomRef = await db.collection('rooms').add({});
     roomId = roomRef.id;
-    
-    await pinRef.set({
-        roomId: roomId,
-        createdAt: firebase.firestore.FieldValue.serverTimestamp() 
-    });
-    
+    await pinRef.set({ roomId: roomId, createdAt: firebase.firestore.FieldValue.serverTimestamp() });
     roomCodeDisplay.value = shortPin;
     updateShareModal(roomId);
 
@@ -263,18 +184,13 @@ async function createRoom() {
     const answerCandidates = roomRef.collection('answerCandidates');
 
     peerConnection = new RTCPeerConnection(servers);
-
-    peerConnection.onconnectionstatechange = (event) => {
-        if (peerConnection.connectionState === 'disconnected' ||
-            peerConnection.connectionState === 'failed' ||
-            peerConnection.connectionState === 'closed') {
+    peerConnection.onconnectionstatechange = () => {
+        if (['disconnected', 'failed', 'closed'].includes(peerConnection.connectionState)) {
             setTimeout(() => hangUp(), 2000);
         }
     };
 
-    currentStream.getTracks().forEach(track => {
-        peerConnection.addTrack(track, currentStream);
-    });
+    currentStream.getTracks().forEach(track => peerConnection.addTrack(track, currentStream));
 
     dataChannel = peerConnection.createDataChannel('chat');
     dataChannel.binaryType = 'arraybuffer';
@@ -287,30 +203,25 @@ async function createRoom() {
     };
 
     peerConnection.onicecandidate = (event) => {
-        if (event.candidate) {
-            offerCandidates.add(event.candidate.toJSON());
-        }
+        if (event.candidate) offerCandidates.add(event.candidate.toJSON());
     };
 
     const offer = await peerConnection.createOffer();
     await peerConnection.setLocalDescription(offer);
-    
     await roomRef.set({ offer: { sdp: offer.sdp, type: offer.type } });
     console.log('Room created with PIN:', shortPin, 'Actual ID:', roomId);
 
     unsubscribeRoom = roomRef.onSnapshot(async (snapshot) => {
         const data = snapshot.data();
         if (peerConnection && !peerConnection.currentRemoteDescription && data?.answer) {
-            const answerDescription = new RTCSessionDescription(data.answer);
-            await peerConnection.setRemoteDescription(answerDescription);
+            await peerConnection.setRemoteDescription(new RTCSessionDescription(data.answer));
         }
     });
 
     unsubscribeAnswerCandidates = answerCandidates.onSnapshot((snapshot) => {
         snapshot.docChanges().forEach((change) => {
             if (change.type === 'added') {
-                const candidate = new RTCIceCandidate(change.doc.data());
-                peerConnection.addIceCandidate(candidate);
+                peerConnection.addIceCandidate(new RTCIceCandidate(change.doc.data()));
             }
         });
     });
@@ -321,7 +232,6 @@ async function joinRoom(pin) {
         alert('Please enter a valid 6-digit PIN.');
         return;
     }
-
     let actualRoomId;
     try {
         const pinRef = db.collection('activePins').doc(pin);
@@ -340,14 +250,12 @@ async function joinRoom(pin) {
     roomId = actualRoomId;
     await startMedia();
     setupRoomUI();
-    isRoomCreator = false; 
-    
+    isRoomCreator = false;
     document.getElementById('roomCodeSection').style.display = 'none';
     console.log('Joining room:', roomId);
 
     const roomRef = db.collection('rooms').doc(roomId);
     const roomDoc = await roomRef.get();
-
     if (!roomDoc.exists) {
         alert('Room does not exist.');
         hangUp();
@@ -355,18 +263,13 @@ async function joinRoom(pin) {
     }
 
     peerConnection = new RTCPeerConnection(servers);
-
-    peerConnection.onconnectionstatechange = (event) => {
-        if (peerConnection.connectionState === 'disconnected' ||
-            peerConnection.connectionState === 'failed' ||
-            peerConnection.connectionState === 'closed') {
+    peerConnection.onconnectionstatechange = () => {
+        if (['disconnected', 'failed', 'closed'].includes(peerConnection.connectionState)) {
             setTimeout(() => hangUp(), 2000);
         }
     };
 
-    currentStream.getTracks().forEach(track => {
-        peerConnection.addTrack(track, currentStream);
-    });
+    currentStream.getTracks().forEach(track => peerConnection.addTrack(track, currentStream));
 
     peerConnection.ontrack = (event) => {
         remoteStream = event.streams[0];
@@ -375,9 +278,7 @@ async function joinRoom(pin) {
     };
 
     peerConnection.onicecandidate = (event) => {
-        if (event.candidate) {
-            roomRef.collection('answerCandidates').add(event.candidate.toJSON());
-        }
+        if (event.candidate) roomRef.collection('answerCandidates').add(event.candidate.toJSON());
     };
 
     peerConnection.ondatachannel = (event) => {
@@ -388,25 +289,20 @@ async function joinRoom(pin) {
 
     const offer = roomDoc.data().offer;
     await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
-    
     const answer = await peerConnection.createAnswer();
     await peerConnection.setLocalDescription(answer);
-
     await roomRef.update({ answer: { sdp: answer.sdp, type: answer.type } });
     console.log('Joined room and sent answer');
 
     unsubscribeOfferCandidates = roomRef.collection('offerCandidates').onSnapshot((snapshot) => {
         snapshot.docChanges().forEach((change) => {
             if (change.type === 'added') {
-                const candidate = new RTCIceCandidate(change.doc.data());
-                peerConnection.addIceCandidate(candidate);
+                peerConnection.addIceCandidate(new RTCIceCandidate(change.doc.data()));
             }
         });
     });
 }
 
-
-// --- Data Channel (Chat, Events, Files) Functions ---
 function setupDataChannelEvents(channel) {
     channel.onopen = () => {
         console.log('Data channel open');
@@ -414,30 +310,25 @@ function setupDataChannelEvents(channel) {
         sendChatBtn.disabled = false;
         fileInput.disabled = false;
         attachFileBtn.disabled = false;
-        
-        startCallTimer(); 
+        startCallTimer();
         startNetworkMonitoring();
         sendEventMessage('hello', {});
     };
-    
+
     channel.onclose = () => {
         console.log('Data channel closed');
         chatInput.disabled = true;
         sendChatBtn.disabled = true;
         fileInput.disabled = true;
         attachFileBtn.disabled = true;
-        
         showTooltip(`${remoteUserName} disconnected.`, 'error');
         stopNetworkMonitoring();
-        if (audioContext && audioContext.state !== 'closed') {
-            audioContext.close();
-        }
-        
+        if (audioContext && audioContext.state !== 'closed') audioContext.close();
         peerStatus.classList.add('hidden');
         peerVideoStatus.classList.add('hidden');
         peerAudioStatus.classList.add('hidden');
     };
-    
+
     channel.onmessage = (event) => {
         if (event.data instanceof ArrayBuffer) {
             handleBinaryMessage(event.data);
@@ -446,43 +337,26 @@ function setupDataChannelEvents(channel) {
 
         try {
             const data = JSON.parse(event.data);
-            
             if (data.type === 'hello') {
                 remoteUserName = data.sender;
                 showTooltip(`${remoteUserName} connected!`, 'success');
-            
             } else if (data.type === 'chat') {
                 displayChatMessage(data.payload.text, data.sender);
-            
             } else if (data.type === 'status') {
                 handlePeerStatus(data.payload.media, data.payload.enabled);
-                if (data.payload.media === 'audio') {
-                    showTooltip(`${remoteUserName} ${data.payload.enabled ? 'is unmuted' : 'is muted'}`, 'success');
-                } else if (data.payload.media === 'video') {
-                    showTooltip(`${remoteUserName} ${data.payload.enabled ? 'turned camera on' : 'turned camera off'}`, 'success');
-                }
-            
+                const action = data.payload.enabled ? (data.payload.media === 'audio' ? 'is unmuted' : 'turned camera on') : (data.payload.media === 'audio' ? 'is muted' : 'turned camera off');
+                showTooltip(`${remoteUserName} ${action}`, 'success');
             } else if (data.type === 'event') {
-                if (data.payload.type === 'camera_switch') {
-                    showTooltip(`${remoteUserName} switched camera`, 'success');
-                } else if (data.payload.type === 'screen_share_on') {
-                    showTooltip(`${remoteUserName} started sharing screen`, 'success');
-                } else if (data.payload.type === 'screen_share_off') {
-                    showTooltip(`${remoteUserName} stopped sharing screen`, 'success');
-                } else if (data.payload.type === 'speaking') {
-                    remoteVideo.classList.add('speaking');
-                } else if (data.payload.type === 'stopped_speaking') {
-                    remoteVideo.classList.remove('speaking');
-                }
-
-            } else if (data.type === 'reaction') { 
+                if (data.payload.type === 'camera_switch') showTooltip(`${remoteUserName} switched camera`, 'success');
+                else if (data.payload.type === 'screen_share_on') showTooltip(`${remoteUserName} started sharing screen`, 'success');
+                else if (data.payload.type === 'screen_share_off') showTooltip(`${remoteUserName} stopped sharing screen`, 'success');
+                else if (data.payload.type === 'speaking') remoteVideo.classList.add('speaking');
+                else if (data.payload.type === 'stopped_speaking') remoteVideo.classList.remove('speaking');
+            } else if (data.type === 'reaction') {
                 showFloatingEmoji(data.payload.emoji);
-            
             } else if (data.type === 'file_ack') {
-                // ACK received from receiver
                 handleFileAcknowledgment(data.payload);
             }
-
         } catch (error) {
             console.error('Error parsing message:', error);
         }
@@ -491,12 +365,7 @@ function setupDataChannelEvents(channel) {
 
 function sendEventMessage(type, payload) {
     if (dataChannel && dataChannel.readyState === 'open') {
-        const data = {
-            type: type,
-            sender: userName,
-            payload: payload
-        };
-        dataChannel.send(JSON.stringify(data));
+        dataChannel.send(JSON.stringify({ type, sender: userName, payload }));
     }
 }
 
@@ -510,10 +379,8 @@ function handlePeerStatus(media, enabled) {
 
 function sendChatMessage() {
     const message = chatInput.value;
-    if (message.trim() === '') return;
-    
-    sendEventMessage('chat', { text: message }); 
-    
+    if (!message.trim()) return;
+    sendEventMessage('chat', { text: message });
     displayChatMessage(message, 'You');
     chatInput.value = '';
 }
@@ -526,32 +393,28 @@ function displayChatMessage(message, sender) {
 
     const msgDiv = document.createElement('div');
     msgDiv.classList.add('p-2', 'rounded-lg', 'max-w-xs');
-    
+
     if (sender === 'You') {
         msgDiv.classList.add('bg-blue-600', 'text-white', 'self-end', 'ml-auto');
-        msgDiv.innerHTML = `<span class="font-bold">You:</span> ${message}`;
+        msgDiv.innerHTML = `You: ${message}`;
     } else {
         msgDiv.classList.add('bg-gray-600', 'text-white', 'self-start', 'mr-auto');
         if (sender === 'System') {
             msgDiv.classList.add('bg-purple-600', 'self-center', 'text-center');
-            msgDiv.innerHTML = `<span class="font-bold">${message}</span>`;
+            msgDiv.innerHTML = `${message}`;
         } else {
-            msgDiv.innerHTML = `<span class="font-bold">${sender}:</span> ${message}`;
+            msgDiv.innerHTML = `${sender}: ${message}`;
         }
     }
-    
+
     if (message.includes('file-progress-')) {
         const parts = message.split(' ');
         if (parts.length > 1 && parts[0].startsWith('file-progress-')) {
             msgDiv.id = parts[0];
             const readableMessage = parts.slice(1).join(' ');
-            if (sender === 'You') {
-                msgDiv.innerHTML = `You: ${readableMessage}`;
-            } else if (sender === 'System') {
-                 msgDiv.innerHTML = `${readableMessage}`;
-            } else {
-                 msgDiv.innerHTML = `<span class="font-bold">${sender}:</span> ${readableMessage}`;
-            }
+            if (sender === 'You') msgDiv.innerHTML = `You: ${readableMessage}`;
+            else if (sender === 'System') msgDiv.innerHTML = `${readableMessage}`;
+            else msgDiv.innerHTML = `${sender}: ${readableMessage}`;
         }
     }
 
@@ -559,18 +422,14 @@ function displayChatMessage(message, sender) {
     chatMessages.scrollTop = chatMessages.scrollHeight;
 }
 
-// --- UI & Control Functions ---
 function setupRoomUI() {
     homeScreen.classList.add('hidden');
     roomScreen.classList.remove('hidden');
-    
     chatInput.disabled = true;
     sendChatBtn.disabled = true;
     fileInput.disabled = true;
-    attachFileBtn.disabled = true; 
-    
+    attachFileBtn.disabled = true;
     remoteVideoPlaceholder.classList.remove('hidden');
-
     if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
         console.log('Screen sharing not supported on this device.');
         screenShareBtn.style.display = 'none';
@@ -587,15 +446,12 @@ function updateShareModal(id) {
 function toggleAudio() {
     const audioTrack = currentStream.getAudioTracks()[0];
     audioTrack.enabled = !audioTrack.enabled;
-    
     const enabled = audioTrack.enabled;
-    muteBtn.innerHTML = enabled ? '🔇' : '🎤';
+    muteBtn.innerHTML = enabled ? '🎤' : '🔇';
     muteBtn.classList.toggle('bg-blue-600', enabled);
     muteBtn.classList.toggle('bg-gray-600', !enabled);
-
     showTooltip(enabled ? 'Unmuted' : 'You are muted', 'success');
-    sendEventMessage('status', { media: 'audio', enabled: enabled });
-
+    sendEventMessage('status', { media: 'audio', enabled });
     if (!enabled) {
         localVideoContainer.classList.remove('speaking');
         sendEventMessage('event', { type: 'stopped_speaking' });
@@ -605,41 +461,29 @@ function toggleAudio() {
 function toggleVideo() {
     const videoTrack = currentStream.getVideoTracks()[0];
     videoTrack.enabled = !videoTrack.enabled;
-    
     const enabled = videoTrack.enabled;
-    videoBtn.innerHTML = enabled ? '📹' : '🚫';
+    videoBtn.innerHTML = enabled ? '📹' : '📵';
     videoBtn.classList.toggle('bg-blue-600', enabled);
     videoBtn.classList.toggle('bg-gray-600', !enabled);
-
     showTooltip(enabled ? 'Camera On' : 'Camera Off', 'success');
-    sendEventMessage('status', { media: 'video', enabled: enabled });
+    sendEventMessage('status', { media: 'video', enabled });
 }
 
-// --- Screen Share Functions ---
 async function toggleScreenShare() {
     if (!isScreenSharing) {
         try {
             screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
             const screenTrack = screenStream.getVideoTracks()[0];
-            
             if (peerConnection) {
                 const sender = peerConnection.getSenders().find(s => s.track.kind === 'video');
-                if (sender) {
-                    await sender.replaceTrack(screenTrack);
-                }
+                if (sender) await sender.replaceTrack(screenTrack);
             }
-
             isScreenSharing = true;
             screenShareBtn.classList.add('bg-blue-600');
             screenShareBtn.classList.remove('bg-gray-600');
-            
             showTooltip('Started screen sharing', 'success');
             sendEventMessage('event', { type: 'screen_share_on' });
-            
-            screenTrack.onended = () => {
-                stopScreenShare();
-            };
-
+            screenTrack.onended = stopScreenShare;
         } catch (error) {
             console.error('Error starting screen share:', error);
             showTooltip('Could not start screen share', 'error');
@@ -650,31 +494,22 @@ async function toggleScreenShare() {
 }
 
 async function stopScreenShare() {
-    if (screenStream) {
-        screenStream.getTracks().forEach(track => track.stop());
-    }
-
+    if (screenStream) screenStream.getTracks().forEach(track => track.stop());
     if (currentStream && peerConnection) {
         const videoTrack = currentStream.getVideoTracks()[0];
         const sender = peerConnection.getSenders().find(s => s.track.kind === 'video');
-        if (sender) {
-            await sender.replaceTrack(videoTrack);
-        }
+        if (sender) await sender.replaceTrack(videoTrack);
     }
-    
     showTooltip('Stopped screen sharing', 'success');
     sendEventMessage('event', { type: 'screen_share_off' });
-    
     isScreenSharing = false;
     screenShareBtn.classList.remove('bg-blue-600');
     screenShareBtn.classList.add('bg-gray-600');
 }
 
-// --- Call Timer Functions ---
 function startCallTimer() {
     callInfoContainer.classList.remove('hidden');
     callStartTime = Date.now();
-
     callTimerInterval = setInterval(() => {
         const secondsElapsed = Math.floor((Date.now() - callStartTime) / 1000);
         document.getElementById('callTimer').innerText = formatTime(secondsElapsed);
@@ -683,9 +518,7 @@ function startCallTimer() {
 
 function stopCallTimer() {
     callInfoContainer.classList.add('hidden');
-    if (callTimerInterval) {
-        clearInterval(callTimerInterval);
-    }
+    if (callTimerInterval) clearInterval(callTimerInterval);
 }
 
 function formatTime(totalSeconds) {
@@ -696,13 +529,12 @@ function formatTime(totalSeconds) {
     return [hours, minutes, seconds].map(v => (v < 10 ? "0" + v : v)).join(":");
 }
 
-// --- Network & Quality Monitoring ---
 function startNetworkMonitoring() {
     networkStatsInterval = setInterval(async () => {
         if (!peerConnection) return;
         try {
             const stats = await peerConnection.getStats();
-            let roundTripTime = 0, frameHeight = 0; 
+            let roundTripTime = 0, frameHeight = 0;
             stats.forEach(report => {
                 if (report.type === 'remote-inbound-rtp' && report.roundTripTime) {
                     roundTripTime = report.roundTripTime * 1000;
@@ -711,14 +543,12 @@ function startNetworkMonitoring() {
                     frameHeight = report.frameHeight;
                 }
             });
-
             const icon = document.getElementById('networkIcon');
             const speedText = document.getElementById('networkSpeed');
             speedText.innerText = `${roundTripTime.toFixed(0)} ms`;
             if (roundTripTime < 150) icon.className = 'net-good';
             else if (roundTripTime < 300) icon.className = 'net-medium';
             else icon.className = 'net-bad';
-
             const qualityLabel = document.getElementById('qualityLabel');
             if (frameHeight > 0) qualityLabel.innerText = `${frameHeight}p`;
             else qualityLabel.innerText = '--p';
@@ -729,18 +559,12 @@ function startNetworkMonitoring() {
 }
 
 function stopNetworkMonitoring() {
-    if (networkStatsInterval) {
-        clearInterval(networkStatsInterval);
-    }
+    if (networkStatsInterval) clearInterval(networkStatsInterval);
 }
 
-// --- Recording Functions ---
 function toggleRecording() {
-    if (isRecording) {
-        stopRecording();
-    } else {
-        startRecording();
-    }
+    if (isRecording) stopRecording();
+    else startRecording();
 }
 
 function startRecording() {
@@ -749,7 +573,7 @@ function startRecording() {
         return;
     }
     recordedChunks = [];
-    const combinedStream = new MediaStream([ ...currentStream.getTracks(), ...remoteStream.getTracks() ]);
+    const combinedStream = new MediaStream([...currentStream.getTracks(), ...remoteStream.getTracks()]);
     try {
         mediaRecorder = new MediaRecorder(combinedStream, { mimeType: 'video/webm; codecs=vp9,opus' });
         mediaRecorder.ondataavailable = (event) => {
@@ -768,13 +592,11 @@ function startRecording() {
 }
 
 function stopRecording() {
-    if (mediaRecorder) {
-        mediaRecorder.stop();
-        isRecording = false;
-        recordBtn.classList.remove('bg-red-600');
-        recordBtn.classList.add('bg-gray-600');
-        showTooltip('Recording stopped', 'success');
-    }
+    if (mediaRecorder) mediaRecorder.stop();
+    isRecording = false;
+    recordBtn.classList.remove('bg-red-600');
+    recordBtn.classList.add('bg-gray-600');
+    showTooltip('Recording stopped', 'success');
 }
 
 function downloadRecording() {
@@ -791,10 +613,8 @@ function downloadRecording() {
     recordedChunks = [];
 }
 
-
-// --- Reaction Functions ---
 function sendReaction(emoji) {
-    sendEventMessage('reaction', { emoji: emoji });
+    sendEventMessage('reaction', { emoji });
 }
 
 function showFloatingEmoji(emoji) {
@@ -803,12 +623,9 @@ function showFloatingEmoji(emoji) {
     emojiSpan.className = 'floating-emoji';
     emojiSpan.style.left = (Math.random() * 80 + 10) + '%';
     animationContainer.appendChild(emojiSpan);
-    emojiSpan.onanimationend = () => {
-        emojiSpan.remove();
-    };
+    emojiSpan.onanimationend = () => emojiSpan.remove();
 }
 
-// --- Speaking Indicator Functions ---
 function setupAudioAnalysis() {
     if (audioContext && audioContext.state !== 'closed') audioContext.close();
     if (!currentStream || currentStream.getAudioTracks().length === 0) {
@@ -827,7 +644,6 @@ function setupAudioAnalysis() {
 
 function checkMicVolume() {
     if (!analyser) return;
-    
     if (!currentStream || !currentStream.getAudioTracks()[0] || !currentStream.getAudioTracks()[0].enabled) {
         localVideoContainer.classList.remove('speaking');
         if (speakingTimer) clearTimeout(speakingTimer);
@@ -835,13 +651,11 @@ function checkMicVolume() {
         requestAnimationFrame(checkMicVolume);
         return;
     }
-    
     analyser.getByteFrequencyData(dataArray);
     let sum = 0;
-    for(let i = 0; i < dataArray.length; i++) sum += dataArray[i];
+    for (let i = 0; i < dataArray.length; i++) sum += dataArray[i];
     const avg = sum / dataArray.length;
-
-    if (avg > 30) { 
+    if (avg > 30) {
         if (!localVideoContainer.classList.contains('speaking')) {
             localVideoContainer.classList.add('speaking');
             sendEventMessage('event', { type: 'speaking' });
@@ -856,91 +670,61 @@ function checkMicVolume() {
     requestAnimationFrame(checkMicVolume);
 }
 
-
-// ==========================================================
-// ===== FILE SHARING WITH ACKNOWLEDGMENT SYSTEM
-// ==========================================================
-
+// ========== FILE SHARING WITH ACKNOWLEDGMENT SYSTEM ==========
 const FILE_META_MARKER = 1;
 const FILE_CHUNK_MARKER = 2;
-
-const CHUNK_SIZE = 16384; // 16KB
-const MAX_BUFFER_SIZE = 262144; // 256KB
+const CHUNK_SIZE = 16384;
+const MAX_BUFFER_SIZE = 262144;
 let receiveBuffer = [];
 let receivedFileSize = 0;
 let fileInProgress = null;
 let isSendingFile = false;
-let currentSendChunkListener = null; 
+let currentSendChunkListener = null;
 let pendingChunks = [];
-
-// NEW: Acknowledgment state
 let waitingForAck = false;
 let currentFileBuffer = null;
 let currentFileMetadata = null;
 
-// Helper function to send metadata
 function sendFileMetadata(payload) {
     try {
         const metaString = JSON.stringify(payload);
         const metaBuffer = new TextEncoder().encode(metaString);
-        
         const finalBuffer = new Uint8Array(1 + metaBuffer.byteLength);
         finalBuffer[0] = FILE_META_MARKER;
         finalBuffer.set(metaBuffer, 1);
-        
         dataChannel.send(finalBuffer);
     } catch (error) {
         console.error('Error sending metadata:', error);
     }
 }
 
-// --- File Selection (UPDATED WITH ACK SYSTEM) ---
 function onFileSelected(e) {
     const file = e.target.files[0];
     if (!file) return;
-    
     console.log("File selected:", file.name);
-    
     if (file.size > 100 * 1024 * 1024) {
         showTooltip('File is too large (max 100MB)', 'error');
         return;
     }
-    
     if (!dataChannel || dataChannel.readyState !== 'open') {
         showTooltip('Connection not ready. Wait for peer.', 'error');
         return;
     }
-    
     if (fileInProgress || waitingForAck) {
         showTooltip('Another file transfer is in progress.', 'error');
         return;
     }
-    
-    currentFileMetadata = { 
-        name: file.name, 
-        size: file.size, 
-        type: file.type 
-    };
-    
+
+    currentFileMetadata = { name: file.name, size: file.size, type: file.type };
     displayChatMessage(`file-progress-${file.name} Preparing ${file.name}...`, 'You');
-    
+
     const fileReader = new FileReader();
     fileReader.onload = (event) => {
         currentFileBuffer = event.target.result;
         console.log('File buffer ready. Sending metadata...');
-        
-        // Send metadata and wait for ACK
-        sendFileMetadata({ 
-            type: 'start', 
-            name: file.name,
-            size: file.size,
-            fileType: file.type 
-        });
-        
+        sendFileMetadata({ type: 'start', name: file.name, size: file.size, fileType: file.type });
         waitingForAck = true;
         fileInProgress = currentFileMetadata;
-        
-        // Timeout if no ACK received in 5 seconds
         setTimeout(() => {
             if (waitingForAck) {
                 console.error('No ACK received from receiver. Aborting transfer.');
@@ -949,33 +733,26 @@ function onFileSelected(e) {
             }
         }, 5000);
     };
-    
     fileReader.onerror = (error) => {
         console.error('File read error:', error);
         showTooltip('Failed to read file', 'error');
         resetFileSendState();
     };
-    
     fileReader.readAsArrayBuffer(file);
     fileInput.value = null;
 }
 
-// NEW: Handle ACK from receiver
 function handleFileAcknowledgment(payload) {
     if (!waitingForAck || !currentFileBuffer || !currentFileMetadata) {
         console.warn('Received unexpected ACK');
         return;
     }
-    
     if (payload.fileName !== currentFileMetadata.name) {
         console.warn('ACK filename mismatch');
         return;
     }
-    
     console.log('ACK received. Starting chunk send...');
     waitingForAck = false;
-    
-    // Now start sending chunks
     startFileSend(currentFileBuffer, currentFileMetadata);
 }
 
@@ -987,74 +764,61 @@ function resetFileSendState() {
     isSendingFile = false;
 }
 
-// --- Optimized File Sending (UNCHANGED) ---
 function startFileSend(buffer, file) {
     if (!dataChannel || dataChannel.readyState !== 'open') {
         showTooltip('Connection lost', 'error');
         resetFileSendState();
         return;
     }
-    
+
     dataChannel.bufferedAmountLowThreshold = CHUNK_SIZE * 5;
-    
     let offset = 0;
     let lastProgressUpdate = 0;
-    
+
     currentSendChunkListener = () => {
         if (offset >= buffer.byteLength) {
             console.log('File transfer complete');
             sendFileMetadata({ type: 'end', name: file.name });
-            
             updateFileProgress(file.name, `Sent: ${file.name}`, 'You');
             resetFileSendState();
-            
             if (dataChannel) dataChannel.removeEventListener('bufferedamountlow', currentSendChunkListener);
-            currentSendChunkListener = null; 
+            currentSendChunkListener = null;
             return;
         }
-        
+
         while (offset < buffer.byteLength && dataChannel.bufferedAmount < MAX_BUFFER_SIZE) {
             const chunk = buffer.slice(offset, offset + CHUNK_SIZE);
-            
             const finalBuffer = new Uint8Array(1 + chunk.byteLength);
             finalBuffer[0] = FILE_CHUNK_MARKER;
             finalBuffer.set(new Uint8Array(chunk), 1);
-
             try {
                 dataChannel.send(finalBuffer);
                 offset += chunk.byteLength;
-                
                 const percent = Math.floor((offset / buffer.byteLength) * 100);
                 if (percent >= lastProgressUpdate + 5 || percent === 100) {
                     updateFileProgress(file.name, `Sending ${file.name} (${percent}%)`, 'You');
                     lastProgressUpdate = percent;
                 }
-                
             } catch (error) {
                 console.error('Send error:', error);
                 showTooltip('File send failed', 'error');
                 resetFileSendState();
                 if (dataChannel) dataChannel.removeEventListener('bufferedamountlow', currentSendChunkListener);
-                currentSendChunkListener = null; 
+                currentSendChunkListener = null;
                 return;
             }
         }
     };
-    
+
     dataChannel.addEventListener('bufferedamountlow', currentSendChunkListener);
-    
     isSendingFile = true;
     updateFileProgress(file.name, `Sending ${file.name} (0%)`, 'You');
-    
     currentSendChunkListener();
 }
-
-// --- File Receiving ---
 
 function handleBinaryMessage(data) {
     const marker = new Uint8Array(data, 0, 1)[0];
     const buffer = data.slice(1);
-
     if (marker === FILE_META_MARKER) {
         try {
             const metaString = new TextDecoder().decode(buffer);
@@ -1074,13 +838,10 @@ function handleFileChunk(chunk) {
         pendingChunks.push(chunk);
         return;
     }
-    
     receiveBuffer.push(chunk);
     receivedFileSize += chunk.byteLength;
-    
     const percent = fileInProgress.size > 0 ? Math.floor((receivedFileSize / fileInProgress.size) * 100) : 0;
     const lastPercent = fileInProgress.size > 0 ? Math.floor(((receivedFileSize - chunk.byteLength) / fileInProgress.size) * 100) : 0;
-    
     if (percent >= lastPercent + 5 || percent === 100 || percent === 0) {
         updateFileProgress(fileInProgress.name, `Receiving ${fileInProgress.name} (${percent}%)`, 'System');
     }
@@ -1092,37 +853,23 @@ function handleFileEvent(payload, sender) {
             console.warn('Another file transfer in progress');
             return;
         }
-        
-        fileInProgress = {
-            name: payload.name,
-            size: payload.size,
-            type: payload.fileType
-        };
+        fileInProgress = { name: payload.name, size: payload.size, type: payload.fileType };
         receiveBuffer = [];
         receivedFileSize = 0;
-        
         displayChatMessage(`file-progress-${payload.name} Receiving ${payload.name} (0%)`, 'System');
         console.log('File receiving started:', payload.name);
-        
-        // NEW: Send ACK to sender
         sendEventMessage('file_ack', { fileName: payload.name });
         console.log('Sent ACK to sender');
-        
-        // Process any buffered chunks
         if (pendingChunks.length > 0) {
             console.log(`Processing ${pendingChunks.length} buffered chunks...`);
-            for (const chunk of pendingChunks) {
-                handleFileChunk(chunk); 
-            }
-            pendingChunks = []; 
+            for (const chunk of pendingChunks) handleFileChunk(chunk);
+            pendingChunks = [];
         }
-        
     } else if (payload.type === 'end') {
         if (!fileInProgress || fileInProgress.name !== payload.name) {
             console.warn('File end mismatch');
             return;
         }
-        
         if (receivedFileSize !== fileInProgress.size) {
             console.error('File size mismatch!', receivedFileSize, 'vs', fileInProgress.size);
             showTooltip('File transfer incomplete', 'error');
@@ -1131,35 +878,51 @@ function handleFileEvent(payload, sender) {
             updateFileProgress(payload.name, `Received: ${payload.name}`, 'System');
             showTooltip(`File received: ${payload.name}`, 'success');
         }
-        
         console.log('File receiving finished:', payload.name);
         fileInProgress = null;
         receiveBuffer = [];
         receivedFileSize = 0;
-        pendingChunks = []; 
+        pendingChunks = [];
     }
 }
 
+// FIX: Improved download function with better browser compatibility
 function downloadReceivedFile() {
     if (!fileInProgress || receiveBuffer.length === 0) {
         console.error('No file to download');
         return;
     }
-    
+
     try {
+        console.log('Creating blob for download...');
         const blob = new Blob(receiveBuffer, { type: fileInProgress.type || 'application/octet-stream' });
+        console.log('Blob created:', blob.size, 'bytes');
+        
         const url = URL.createObjectURL(blob);
+        console.log('Object URL created:', url);
+        
         const a = document.createElement('a');
         a.href = url;
         a.download = fileInProgress.name;
-        document.body.appendChild(a);
-        a.style.display = 'none';
-        a.click();
         
+        // CRITICAL FIX: Ensure element is properly attached before clicking
+        a.style.display = 'none';
+        document.body.appendChild(a);
+        
+        console.log('Triggering download for:', fileInProgress.name);
+        
+        // Use setTimeout to ensure DOM is updated
         setTimeout(() => {
-            window.URL.revokeObjectURL(url);
-            document.body.removeChild(a);
-        }, 100);
+            a.click();
+            console.log('Download triggered successfully');
+            
+            // Cleanup after a delay
+            setTimeout(() => {
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+                console.log('Cleanup complete');
+            }, 250);
+        }, 10);
         
     } catch (error) {
         console.error('Download error:', error);
@@ -1170,31 +933,19 @@ function downloadReceivedFile() {
 function updateFileProgress(fileName, message, sender) {
     const progressId = `file-progress-${fileName}`;
     let msgDiv = document.getElementById(progressId);
-    
     if (msgDiv) {
-        if (sender === 'You') {
-            msgDiv.innerHTML = `You: ${message}`;
-        } else {
-            msgDiv.innerHTML = `${message}`;
-        }
+        msgDiv.innerHTML = sender === 'You' ? `You: ${message}` : message;
     } else {
         displayChatMessage(`${progressId} ${message}`, sender);
     }
 }
 
-// ========================================================
-// ===== END: FILE SHARING
-// ========================================================
-
-
-// --- Hangup Function ---
 async function hangUp() {
     if (isRecording) stopRecording();
     stopCallTimer();
     stopNetworkMonitoring();
-    if (audioContext && audioContext.state !== 'closed') audioContext.close(); 
+    if (audioContext && audioContext.state !== 'closed') audioContext.close();
     clearTimeout(speakingTimer);
-
     if (unsubscribeRoom) unsubscribeRoom();
     if (unsubscribeOfferCandidates) unsubscribeOfferCandidates();
     if (unsubscribeAnswerCandidates) unsubscribeAnswerCandidates();
@@ -1207,12 +958,11 @@ async function hangUp() {
         }
         dataChannel.close();
     }
-    
-    // Reset file transfer state
+
     resetFileSendState();
     receiveBuffer = [];
     pendingChunks = [];
-    
+
     if (peerConnection) {
         peerConnection.onconnectionstatechange = null;
         peerConnection.close();
@@ -1229,9 +979,7 @@ async function hangUp() {
                 offerCandidates.forEach(async (doc) => await doc.ref.delete());
                 const answerCandidates = await roomRef.collection('answerCandidates').get();
                 answerCandidates.forEach(async (doc) => await doc.ref.delete());
-                if (shortPin) {
-                    await db.collection('activePins').doc(shortPin).delete();
-                }
+                if (shortPin) await db.collection('activePins').doc(shortPin).delete();
                 await roomRef.delete();
             } else {
                 console.log('Joiner cleaning up candidates...');
@@ -1245,7 +993,6 @@ async function hangUp() {
     window.location.href = window.location.pathname;
 }
 
-// --- Modal Functions ---
 function showShareModal() {
     shareModal.classList.remove('hidden');
 }
