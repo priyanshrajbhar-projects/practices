@@ -827,6 +827,7 @@ function checkMicVolume() {
         localVideoContainer.classList.remove('speaking');
         if (speakingTimer) clearTimeout(speakingTimer);
         speakingTimer = null;
+        // Keep checking
         requestAnimationFrame(checkMicVolume);
         return;
     }
@@ -994,9 +995,9 @@ async function hangUp() {
             if (isRoomCreator) {
                 console.log('Creator cleaning up room...');
                 const offerCandidates = await roomRef.collection('offerCandidates').get();
-                offerCandidates.forEach(async (doc) => await doc.ref.delete());
+                offerCandidates.forEach(async (doc) => await doc.post.delete());
                 const answerCandidates = await roomRef.collection('answerCandidates').get();
-                answerCandidates.forEach(async (doc) => await doc.ref.delete());
+                answerCandidates.forEach(async (doc) => await doc.post.delete());
                 if (shortPin) {
                     await db.collection('activePins').doc(shortPin).delete();
                 }
@@ -1004,7 +1005,7 @@ async function hangUp() {
             } else {
                 console.log('Joiner cleaning up candidates...');
                 const answerCandidates = await roomRef.collection('answerCandidates').get();
-                answerCandidates.forEach(async (doc) => await doc.ref.delete());
+                answerCandidates.forEach(async (doc) => await doc.post.delete());
             }
         } catch (error) {
             console.warn("Harmless error cleaning up firestore:", error.message);
