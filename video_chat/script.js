@@ -1,4 +1,4 @@
-// FINAL CODE (CRASH FIX + All Features + MARKER-BYTE FILE TRANSFER)
+// FINAL CODE (CRASH FIX + All Features + ACKNOWLEDGMENT FILE TRANSFER)
 
 // --- DOM Elements ---
 const welcomeScreen = document.getElementById('welcomeScreen');
@@ -440,13 +440,13 @@ function setupDataChannelEvents(channel) {
     };
     
     channel.onmessage = (event) => {
-        // NEW: All file data (meta + chunks) now arrives as binary
+        // Binary messages (file chunks, file metadata)
         if (event.data instanceof ArrayBuffer) {
-            handleBinaryMessage(event.data); // NEW Function
+            handleBinaryMessage(event.data); 
             return;
         }
 
-        // Only JSON messages (chat, events, etc.) arrive here now
+        // JSON messages (chat, events, ACK)
         try {
             const data = JSON.parse(event.data);
             
@@ -481,8 +481,18 @@ function setupDataChannelEvents(channel) {
             } else if (data.type === 'reaction') { 
                 showFloatingEmoji(data.payload.emoji);
             
-            } 
-            // OLD 'file' type removed, it's now handled by handleBinaryMessage
+            } else if (data.type === 'file-ack') {
+                // NEW: Receiver is ready for chunks!
+                if (fileToSendBuffer && data.payload.name === fileToSendMeta.name) {
+                    console.log('Received file-ack. Starting chunk send...');
+                    // Start sending the file buffer we saved
+                    startFileSend(fileToSendBuffer, fileToSendMeta); 
+                    fileToSendBuffer = null; // Clear buffer
+                    fileToSendMeta = null;
+                } else {
+                    console.warn('Received file-ack for unknown file.');
+                }
+            }
 
         } catch (error) {
             console.error('Error parsing message:', error);
@@ -490,6 +500,7 @@ function setupDataChannelEvents(channel) {
     };
 }
 
+// Send JSON messages
 function sendEventMessage(type, payload) {
     if (dataChannel && dataChannel.readyState === 'open') {
         const data = {
@@ -859,33 +870,34 @@ function checkMicVolume() {
 
 
 // ==========================================================
-// ===== START: MARKER-BYTE FILE SHARING
+// ===== START: ACKNOWLEDGMENT FILE SHARING
 // ==========================================================
 
-// NEW: Markers to identify message types in a single binary stream
 const FILE_META_MARKER = 1;
 const FILE_CHUNK_MARKER = 2;
 
-// File Sharing Configuration
-const CHUNK_SIZE = 16384; // 16KB
-const MAX_BUFFER_SIZE = 262144; // 256KB
+const CHUNK_SIZE = 16384; 
+const MAX_BUFFER_SIZE = 262144; 
 let receiveBuffer = [];
 let receivedFileSize = 0;
-let fileInProgress = null;
-let isSendingFile = false; // Replaced fileSendQueue
+let fileInProgress = null; // Used by BOTH sender and receiver
+let isSendingFile = false; 
 let currentSendChunkListener = null; 
-let pendingChunks = []; // Buffer for early chunks (still needed, but will be smaller)
+let pendingChunks = []; // Receiver's buffer for early chunks
 
-// NEW: Helper function to send metadata
+// NEW: Globals to hold the file buffer until ACK is received
+let fileToSendBuffer = null;
+let fileToSendMeta = null;
+
+// Helper to send metadata
 function sendFileMetadata(payload) {
     try {
         const metaString = JSON.stringify(payload);
         const metaBuffer = new TextEncoder().encode(metaString);
         
-        // Create final buffer: 1 byte for marker + N bytes for data
         const finalBuffer = new Uint8Array(1 + metaBuffer.byteLength);
-        finalBuffer[0] = FILE_META_MARKER; // Add marker
-        finalBuffer.set(metaBuffer, 1); // Add data
+        finalBuffer[0] = FILE_META_MARKER; 
+        finalBuffer.set(metaBuffer, 1); 
         
         dataChannel.send(finalBuffer);
     } catch (error) {
@@ -893,7 +905,7 @@ function sendFileMetadata(payload) {
     }
 }
 
-// --- File Selection (UPDATED) ---
+// --- File Selection (UPDATED for ACK) ---
 function onFileSelected(e) {
     const file = e.target.files[0];
     if (!file) return;
@@ -910,45 +922,50 @@ function onFileSelected(e) {
         return;
     }
     
-    if (fileInProgress) {
-        showTooltip('Another file transfer is in progress.', 'error');
+    if (fileInProgress) { // fileInProgress blocks new transfers
+        showTooltip('Another file transfer is already in progress.', 'error');
         return;
     }
     
+    // Set sender's side 'fileInProgress' to block others
     fileInProgress = { name: file.name, size: file.size, type: file.type };
     
-    // UPDATED: Send file metadata as binary with a marker
-    sendFileMetadata({ 
-        type: 'start', 
-        name: file.name,
-        size: file.size,
-        type: file.type 
-    });
+    // Save metadata for when ACK is received
+    fileToSendMeta = { name: file.name, size: file.size, type: file.type };
     
     displayChatMessage(`file-progress-${file.name} Preparing ${file.name}...`, 'You');
     
     const fileReader = new FileReader();
     fileReader.onload = (event) => {
-        startFileSend(event.target.result, file);
+        // Save the file buffer
+        fileToSendBuffer = event.target.result;
+        
+        // NOW, send the metadata to START the ACK process
+        console.log('File buffer ready. Sending metadata to receiver...');
+        sendFileMetadata({ 
+            type: 'start', 
+            ...fileToSendMeta
+        });
     };
     fileReader.onerror = (error) => {
         console.error('File read error:', error);
         showTooltip('Failed to read file', 'error');
-        fileInProgress = null;
+        fileInProgress = null; // Unblock
     };
     fileReader.readAsArrayBuffer(file);
     fileInput.value = null;
 }
 
-// --- Optimized File Sending (UPDATED) ---
-function startFileSend(buffer, file) {
+// --- Optimized File Sending (UPDATED for ACK) ---
+// This function is now ONLY called *after* 'file-ack' is received
+function startFileSend(buffer, fileMeta) { 
     if (!dataChannel || dataChannel.readyState !== 'open') {
         showTooltip('Connection lost', 'error');
         fileInProgress = null;
         return;
     }
     
-    dataChannel.bufferedAmountLowThreshold = CHUNK_SIZE * 5; // 80KB buffer
+    dataChannel.bufferedAmountLowThreshold = CHUNK_SIZE * 5; 
     
     let offset = 0;
     let lastProgressUpdate = 0;
@@ -956,11 +973,11 @@ function startFileSend(buffer, file) {
     currentSendChunkListener = () => {
         if (offset >= buffer.byteLength) {
             console.log('File transfer complete');
-            // UPDATED: Send 'end' message as binary with marker
-            sendFileMetadata({ type: 'end', name: file.name });
+            // Send 'end' message
+            sendFileMetadata({ type: 'end', name: fileMeta.name });
             
-            updateFileProgress(file.name, `Sent: ${file.name}`, 'You');
-            fileInProgress = null;
+            updateFileProgress(fileMeta.name, `Sent: ${fileMeta.name}`, 'You');
+            fileInProgress = null; // Unblock sender
             isSendingFile = false;
             
             if (dataChannel) dataChannel.removeEventListener('bufferedamountlow', currentSendChunkListener);
@@ -971,25 +988,24 @@ function startFileSend(buffer, file) {
         while (offset < buffer.byteLength && dataChannel.bufferedAmount < MAX_BUFFER_SIZE) {
             const chunk = buffer.slice(offset, offset + CHUNK_SIZE);
             
-            // UPDATED: Create final buffer with marker
             const finalBuffer = new Uint8Array(1 + chunk.byteLength);
             finalBuffer[0] = FILE_CHUNK_MARKER;
             finalBuffer.set(new Uint8Array(chunk), 1);
 
             try {
-                dataChannel.send(finalBuffer); // Send marked chunk
+                dataChannel.send(finalBuffer); 
                 offset += chunk.byteLength;
                 
                 const percent = Math.floor((offset / buffer.byteLength) * 100);
                 if (percent >= lastProgressUpdate + 5 || percent === 100) {
-                    updateFileProgress(file.name, `Sending ${file.name} (${percent}%)`, 'You');
+                    updateFileProgress(fileMeta.name, `Sending ${fileMeta.name} (${percent}%)`, 'You');
                     lastProgressUpdate = percent;
                 }
                 
             } catch (error) {
                 console.error('Send error:', error);
                 showTooltip('File send failed', 'error');
-                fileInProgress = null;
+                fileInProgress = null; // Unblock sender
                 isSendingFile = false;
                 if (dataChannel) dataChannel.removeEventListener('bufferedamountlow', currentSendChunkListener);
                 currentSendChunkListener = null; 
@@ -1001,14 +1017,14 @@ function startFileSend(buffer, file) {
     dataChannel.addEventListener('bufferedamountlow', currentSendChunkListener);
     
     isSendingFile = true;
-    updateFileProgress(file.name, `Sending ${file.name} (0%)`, 'You');
+    updateFileProgress(fileMeta.name, `Sending ${fileMeta.name} (0%)`, 'You');
     
     currentSendChunkListener(); // Start sending
 }
 
 // --- File Receiving ---
 
-// NEW: Main binary message handler
+// Main binary message handler
 function handleBinaryMessage(data) {
     const marker = new Uint8Array(data, 0, 1)[0];
     const buffer = data.slice(1); // Get the rest of the data
@@ -1028,7 +1044,7 @@ function handleBinaryMessage(data) {
     }
 }
 
-// (This function now only handles chunks)
+// (Handles only chunks)
 function handleFileChunk(chunk) {
     if (!fileInProgress) {
         console.warn('Received chunk before metadata. Buffering...');
@@ -1047,14 +1063,15 @@ function handleFileChunk(chunk) {
     }
 }
 
-// (This function is now only called by handleBinaryMessage)
-function handleFileEvent(payload, sender) { // 'sender' is passed for consistency
+// (Handles only metadata logic, now sends ACK)
+function handleFileEvent(payload, sender) { 
     if (payload.type === 'start') {
         if (fileInProgress) {
             console.warn('Another file transfer in progress');
             return;
         }
         
+        // Set receiver's 'fileInProgress' to block
         fileInProgress = {
             name: payload.name,
             size: payload.size,
@@ -1066,6 +1083,11 @@ function handleFileEvent(payload, sender) { // 'sender' is passed for consistenc
         displayChatMessage(`file-progress-${payload.name} Receiving ${payload.name} (0%)`, 'System');
         console.log('File receiving started:', payload.name);
         
+        // NEW: Send ACK back to sender
+        console.log('Receiver is ready. Sending file-ack.');
+        sendEventMessage('file-ack', { name: payload.name });
+        
+        // Process any chunks that arrived early
         if (pendingChunks.length > 0) {
             console.log(`Processing ${pendingChunks.length} buffered chunks...`);
             for (const chunk of pendingChunks) {
@@ -1090,7 +1112,7 @@ function handleFileEvent(payload, sender) { // 'sender' is passed for consistenc
         }
         
         console.log('File receiving finished:', payload.name);
-        fileInProgress = null;
+        fileInProgress = null; // Unblock receiver
         receiveBuffer = [];
         receivedFileSize = 0;
         pendingChunks = []; 
@@ -1140,7 +1162,7 @@ function updateFileProgress(fileName, message, sender) {
 }
 
 // ========================================================
-// ===== END: MARKER-BYTE FILE SHARING
+// ===== END: ACKNOWLEDGMENT FILE SHARING
 // ========================================================
 
 
@@ -1170,6 +1192,8 @@ async function hangUp() {
     receiveBuffer = [];
     pendingChunks = [];
     isSendingFile = false;
+    fileToSendBuffer = null;
+    fileToSendMeta = null;
     
     if (peerConnection) {
         peerConnection.onconnectionstatechange = null;
@@ -1186,7 +1210,7 @@ async function hangUp() {
                 const offerCandidates = await roomRef.collection('offerCandidates').get();
                 offerCandidates.forEach(async (doc) => await doc.ref.delete());
                 const answerCandidates = await roomRef.collection('answerCandidates').get();
-                answerCandidates.forEach(async (doc) => await doc.ref.delete());
+                answerCandidates.forEach(async (doc) => await doc.f.delete());
                 if (shortPin) {
                     await db.collection('activePins').doc(shortPin).delete();
                 }
